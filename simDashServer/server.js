@@ -82,6 +82,10 @@ let rooms = [
         id: 'room-2',
         title: 'Simulator group 2',
         instances: ['ID-9106db03', 'ID-9106db04', 'ID-9106db05']
+    },
+    {
+        id: 'unassigned',
+        instances: []
     }
 ];
 
@@ -98,7 +102,7 @@ io.on('connection', (socket) => {
     socket.on('addInstanceToRoom', ({ instanceId, roomId }) => {
         const room = rooms.find(r => r.id === roomId);
         if (room && !room.instances.includes(instanceId)) {
-            // Remove from other rooms first
+            // Remove from other rooms first, including unassigned
             rooms.forEach(r => {
                 r.instances = r.instances.filter(id => id !== instanceId);
             });
@@ -114,6 +118,13 @@ io.on('connection', (socket) => {
         const room = rooms.find(r => r.id === roomId);
         if (room) {
             room.instances = room.instances.filter(id => id !== instanceId);
+            
+            // Add to unassigned room
+            const unassignedRoom = rooms.find(r => r.id === 'unassigned');
+            if (unassignedRoom && !unassignedRoom.instances.includes(instanceId)) {
+                unassignedRoom.instances.push(instanceId);
+            }
+            
             io.emit('roomUpdate', rooms);
         }
     });

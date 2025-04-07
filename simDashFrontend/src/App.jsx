@@ -25,7 +25,7 @@ function App() {
 
     // Listen for instance updates
     socket.on('instanceUpdate', (updatedInstance) => {
-      setInstances(prev => prev.map(instance => 
+      setInstances(prev => prev.map(instance =>
         instance.id === updatedInstance.id ? updatedInstance : instance
       ))
     })
@@ -46,17 +46,60 @@ function App() {
     }
   }, [])
 
-  const handleAddToRoom = (instanceId, roomId) => {
-    socket.emit('addInstanceToRoom', { instanceId, roomId })
-  }
+  const addToRoom = (instanceId, roomId) => {
+    // First update local state for immediate UI feedback
+    const updatedRooms = rooms.map(room => ({
+      ...room,
+      instances: room.instances.filter(id => id !== instanceId)
+    }));
 
-  const handleRemoveFromRoom = (instanceId, roomId) => {
-    socket.emit('removeInstanceFromRoom', { instanceId, roomId })
-  }
+    setRooms(updatedRooms.map(room => {
+      if (room.id === roomId) {
+        return {
+          ...room,
+          instances: [...room.instances, instanceId]
+        };
+      }
+      return room;
+    }));
 
-  const handleEditInstanceTitle = (instanceId, newTitle) => {
-    socket.emit('updateInstanceTitle', { instanceId, title: newTitle })
-  }
+    // Then emit the event to the server
+    socket.emit('addInstanceToRoom', { instanceId, roomId });
+  };
+
+  const removeFromRoom = (instanceId, roomId) => {
+    // First update local state for immediate UI feedback
+    setRooms(rooms.map(room => {
+      if (room.id === roomId) {
+        return {
+          ...room,
+          instances: room.instances.filter(id => id !== instanceId)
+        };
+      } else if (room.id === 'unassigned') {
+        // Add to unassigned room when removed from another room
+        return {
+          ...room,
+          instances: [...room.instances, instanceId]
+        };
+      }
+      return room;
+    }));
+
+    // Then emit the event to the server
+    socket.emit('removeInstanceFromRoom', { instanceId, roomId });
+  };
+
+  const editInstanceTitle = (instanceId, newTitle) => {
+    // First update local state for immediate UI feedback
+    setInstances(instances.map(instance =>
+      instance.id === instanceId
+        ? { ...instance, title: newTitle }
+        : instance
+    ));
+
+    // Then emit the event to the server
+    socket.emit('updateInstanceTitle', { instanceId, title: newTitle });
+  };
 
   return (
     <div className="flex h-screen">
@@ -67,12 +110,12 @@ function App() {
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
           </div>
         ) : (
-          <Dashboard 
-            instances={instances} 
+          <Dashboard
+            instances={instances}
             rooms={rooms}
-            onAddToRoom={handleAddToRoom}
-            onRemoveFromRoom={handleRemoveFromRoom}
-            onEditInstanceTitle={handleEditInstanceTitle}
+            onAddToRoom={addToRoom}
+            onRemoveFromRoom={removeFromRoom}
+            onEditInstanceTitle={editInstanceTitle}
           />
         )}
       </main>
