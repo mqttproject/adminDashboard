@@ -6,6 +6,7 @@ class SimulatorRegistry {
   }
   
   registerSimulator(deviceId, url) {
+    // Store device to "owner" simulator URL
     this.simulators[deviceId] = url;
     
     // Track which devices belong to which simulator URL
@@ -32,6 +33,18 @@ class SimulatorRegistry {
     return this.states[deviceId];
   }
   
+  unregisterDevice(deviceId){
+    const url = this.simulators[deviceId];
+
+    //Remove device from tracking
+    delete this.simulators[deviceId]; //Removal from simulator map
+    delete this.states[deviceId]; // Removal from states map
+
+    if (url && this.urlToDevices[url]) {
+      this.urlToDevices[url] = this.urlToDevices[url].filter(id => id !== deviceId); //Removal from urlToDevices map
+    }
+  }
+
   getAllStates() {
     return this.states;
   }
