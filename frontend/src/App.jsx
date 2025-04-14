@@ -46,7 +46,7 @@ function App() {
 
     const pollInterval = setInterval(() => {
       fetchData();
-    }, 5000);
+    }, 20000);
 
     return () => clearInterval(pollInterval);
   }, [isLoading, fetchData]);

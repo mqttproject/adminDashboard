@@ -9,6 +9,7 @@ const axios = require('axios');
 // Import routes
 const authRoutes = require('./routes/auth_route');
 const apiRoutes = require('./routes/api');
+const dashboardRoutes = require('./routes/dashboard');
 const pollingService = require('./services/polling');
 
 // Initialize app
@@ -96,68 +97,13 @@ let rooms = [
     }
 ];
 
+// Inject data references to the dashboard module
+dashboardRoutes.setData(instances, rooms);
+
 // Routes - Modular approach
 app.use('/auth_route', authRoutes);
-app.use('/api', apiRoutes);
-
-// Direct API Routes for frontend functionality
-
-// Add a heartbeat endpoint that combines rooms and instances data
-app.get('/api/heartbeat', (req, res) => {
-    res.json({ instances, rooms });
-});
-
-// Add instance to room
-app.post('/api/rooms/add-instance', (req, res) => {
-    const { instanceId, roomId } = req.body;
-    const room = rooms.find(r => r.id === roomId);
-    
-    if (room && !room.instances.includes(instanceId)) {
-        // Remove from other rooms first, including unassigned
-        rooms.forEach(r => {
-            r.instances = r.instances.filter(id => id !== instanceId);
-        });
-
-        // Add to the new room
-        room.instances.push(instanceId);
-        res.json({ success: true, rooms });
-    } else {
-        res.status(400).json({ success: false, message: 'Room not found or instance already in room' });
-    }
-});
-
-// Remove instance from room
-app.post('/api/rooms/remove-instance', (req, res) => {
-    const { instanceId, roomId } = req.body;
-    const room = rooms.find(r => r.id === roomId);
-    
-    if (room) {
-        room.instances = room.instances.filter(id => id !== instanceId);
-        
-        // Add to unassigned room
-        const unassignedRoom = rooms.find(r => r.id === 'unassigned');
-        if (unassignedRoom && !unassignedRoom.instances.includes(instanceId)) {
-            unassignedRoom.instances.push(instanceId);
-        }
-        
-        res.json({ success: true, rooms });
-    } else {
-        res.status(400).json({ success: false, message: 'Room not found' });
-    }
-});
-
-// Update instance title
-app.put('/api/instances/update-title', (req, res) => {
-    const { instanceId, title } = req.body;
-    const instance = instances.find(i => i.id === instanceId);
-    
-    if (instance) {
-        instance.title = title;
-        res.json({ success: true, instance });
-    } else {
-        res.status(400).json({ success: false, message: 'Instance not found' });
-    }
-});
+app.use('/deviceapi', apiRoutes); //for now it's deviceapi, later it will be api
+app.use('/api', dashboardRoutes.router);
 
 // Handle simulated status changes
 setInterval(() => {
