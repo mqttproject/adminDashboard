@@ -1,10 +1,24 @@
 const express = require('express');
-const http = require('http');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const morgan = require('morgan');
+const helmet = require('helmet');
+const jwt = require('jsonwebtoken');
+const axios = require('axios');
 
+// Import routes
+const authRoutes = require('./routes/auth_route');
+const apiRoutes = require('./routes/api');
+const pollingService = require('./services/polling');
+
+// Initialize app
 const app = express();
-app.use(cors());
+
+// Middleware
+app.use(helmet()); // Security headers
+app.use(cors()); // CORS for dashboard requests
+app.use(express.json()); // Parsing JSON bodies
+app.use(morgan('combined')); // Logging
 app.use(bodyParser.json());
 
 // Mock data for simulator instances and rooms
@@ -82,10 +96,14 @@ let rooms = [
     }
 ];
 
-// API Routes
+// Routes - Modular approach
+app.use('/auth_route', authRoutes);
+app.use('/api', apiRoutes);
 
-// Get initial data
-app.get('/api/initial-data', (req, res) => {
+// Direct API Routes for frontend functionality
+
+// Add a heartbeat endpoint that combines rooms and instances data
+app.get('/api/heartbeat', (req, res) => {
     res.json({ instances, rooms });
 });
 
@@ -141,23 +159,7 @@ app.put('/api/instances/update-title', (req, res) => {
     }
 });
 
-// Get all rooms
-app.get('/api/rooms', (req, res) => {
-    res.json(rooms);
-});
-
-// Get all instances
-app.get('/api/instances', (req, res) => {
-    res.json(instances);
-});
-
-// Add a heartbeat endpoint that combines rooms and instances data
-app.get('/api/heartbeat', (req, res) => {
-    res.json({ instances, rooms });
-});
-
 // Handle simulated status changes
-// This would be connected to the actual simulators in a real implementation
 setInterval(() => {
     const randomIndex = Math.floor(Math.random() * instances.length);
     const instance = instances[randomIndex];
@@ -165,9 +167,11 @@ setInterval(() => {
     // Toggle status occasionally
     if (Math.random() < 0.1) {
         instance.status = instance.status === 'online' ? 'offline' : 'online';
-        // No need to emit, clients will poll for updates
     }
 }, 10000); // Every 10 seconds
+
+// Start polling service from structured codebase
+pollingService.start();
 
 // Start server
 const PORT = process.env.PORT || 3000;

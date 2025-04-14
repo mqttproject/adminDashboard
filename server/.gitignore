@@ -1,0 +1,10 @@
+# Server dependencies
+node_modules
+package-lock.json
+
+# Environment files
+.env
+
+# Logs
+logs
+*.log
