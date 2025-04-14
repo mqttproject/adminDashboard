@@ -1,7 +1,7 @@
-/simDashServer/node_modules
-/simDashServer/package-lock.json
-/simDashFrontend/node_modules
-/simDashFrontend/package-lock.json
-/simDashServer/.env
+/server/node_modules
+/server/package-lock.json
+/frontend/node_modules
+/frontend/package-lock.json
+/server/.env
 /package-lock.json
 /node_modules
