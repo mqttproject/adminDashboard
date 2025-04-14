@@ -95,6 +95,61 @@ router.post('/device/:id', async (req, res) => {
   }
 });
 
+// Create/configure multiple devices to a simulator
+router.post('/devices', async (req, res) => {
+  const { simulatorUrl, devices } = req.body;
+
+  if (!simulatorUrl) {
+    return res.status(400).json({error: 'Simulator URL is required'});
+  }
+
+  if(!devices || typeof devices !== 'object') {
+    return res.status(400).json({ error: 'Devices object is required'})
+  }
+
+  try {
+    const response = await axios.post(`${simulatorUrl}/devices`, {
+      devices
+    });
+
+    // Register all devices into the registry
+    Object.keys(devices).forEach(deviceId => {
+      simulatorRegistry.registerSimulator(deviceId, simulatorUrl);
+    });
+
+    res.json(response.data)
+  } catch (error) {
+    res.status(error.response?.status || 500).json({
+      error: 'Error creating devices',
+      details: error.message
+    });
+  }
+})
+
+//Delete existing device
+router.post('/device/:id/delete', async (req, res) =>{
+  const {id} = req.params;
+  const simulatorUrl = simulatorRegistry.getSimulatorUrl(id);
+
+  if (!simulatorUrl) {
+    return res.status(404).json({ error: 'Device not found' });
+  }
+  
+  try {
+    const response = await axios.post(`${simulatorUrl}/device/${id}/delete`);
+    
+    // Remove device from registry
+    simulatorRegistry.unregisterDevice(id);
+    
+    res.json(response.data);
+  } catch (error) {
+    res.status(error.response?.status || 500).json({
+      error: 'Error deleting device',
+      details: error.message
+    });
+  }
+});
+
 // Get configuration
 router.get('/configuration', async (req, res) => {
   // This would need to aggregate configurations from all simulators
@@ -109,7 +164,7 @@ router.get('/configuration', async (req, res) => {
       console.error(`Error fetching config for ${id}: ${error.message}`);
     }
   }
-  
+
   res.json(configs);
 });
 
