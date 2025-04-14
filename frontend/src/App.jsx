@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
+import { FaSync } from '@react-icons/all-files/fa/FaSync'
 
 // API base URL
 const API_URL = 'http://localhost:3000/api';
@@ -9,46 +10,46 @@ function App() {
   const [instances, setInstances] = useState([])
   const [rooms, setRooms] = useState([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
-  // Fetch initial data
-  useEffect(() => {
-    const fetchInitialData = async () => {
-      try {
-        const response = await fetch(`${API_URL}/initial-data`);
-        const data = await response.json();
-        setInstances(data.instances);
-        setRooms(data.rooms);
-        setIsLoading(false);
-      } catch (error) {
-        console.error('Error fetching initial data:', error);
-      }
-    };
-
-    fetchInitialData();
+  // Create a reusable function to fetch data
+  const fetchData = useCallback(async () => {
+    try {
+      setIsRefreshing(true);
+      const response = await fetch(`${API_URL}/heartbeat`);
+      const data = await response.json();
+      setInstances(data.instances);
+      setRooms(data.rooms);
+      setIsLoading(false);
+      setIsRefreshing(false);
+      return { success: true };
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      setIsRefreshing(false);
+      return { success: false, error };
+    }
   }, []);
+
+  // Function to manually refresh data
+  const refreshData = useCallback(async () => {
+    return await fetchData();
+  }, [fetchData]);
+
+  // Initial data fetch
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   // Poll for updates every 5 seconds
   useEffect(() => {
     if (isLoading) return;
 
-    const pollInterval = setInterval(async () => {
-      try {
-        // Poll for instance updates
-        const instancesResponse = await fetch(`${API_URL}/instances`);
-        const instancesData = await instancesResponse.json();
-        setInstances(instancesData);
-
-        // Poll for room updates
-        const roomsResponse = await fetch(`${API_URL}/rooms`);
-        const roomsData = await roomsResponse.json();
-        setRooms(roomsData);
-      } catch (error) {
-        console.error('Error polling for updates:', error);
-      }
+    const pollInterval = setInterval(() => {
+      fetchData();
     }, 5000);
 
     return () => clearInterval(pollInterval);
-  }, [isLoading]);
+  }, [isLoading, fetchData]);
 
   const addToRoom = async (instanceId, roomId) => {
     // First update local state for immediate UI feedback
@@ -79,11 +80,13 @@ function App() {
       
       const data = await response.json();
       if (data.success) {
-        setRooms(data.rooms); // Update with server response to ensure consistency
+        // Rather than just updating rooms directly, refresh all data to ensure consistency
+        await fetchData();
       }
     } catch (error) {
       console.error('Error adding instance to room:', error);
-      // Could add error handling and rollback UI state here
+      // Refresh data to revert to server state in case of error
+      await fetchData();
     }
   };
 
@@ -117,11 +120,13 @@ function App() {
       
       const data = await response.json();
       if (data.success) {
-        setRooms(data.rooms); // Update with server response to ensure consistency
+        // Refresh all data to ensure consistency
+        await fetchData();
       }
     } catch (error) {
       console.error('Error removing instance from room:', error);
-      // Could add error handling and rollback UI state here
+      // Refresh data to revert to server state in case of error
+      await fetchData();
     }
   };
 
@@ -145,35 +150,44 @@ function App() {
       
       const data = await response.json();
       if (data.success) {
-        // Update the specific instance with the server response
-        setInstances(prevInstances => 
-          prevInstances.map(instance => 
-            instance.id === instanceId ? data.instance : instance
-          )
-        );
+        // Update all data to ensure consistency
+        await fetchData();
       }
     } catch (error) {
       console.error('Error updating instance title:', error);
-      // Could add error handling and rollback UI state here
+      // Refresh data to revert to server state in case of error
+      await fetchData();
     }
   };
 
   return (
     <div className="flex h-screen">
       <Sidebar />
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-auto relative">
         {isLoading ? (
           <div className="flex justify-center items-center h-full">
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
           </div>
         ) : (
-          <Dashboard 
-            instances={instances} 
-            rooms={rooms}
-            onAddToRoom={addToRoom}
-            onRemoveFromRoom={removeFromRoom}
-            onEditInstanceTitle={editInstanceTitle}
-          />
+          <>
+            <div className="absolute top-4 right-4 z-10">
+              <button 
+                className={`p-2 rounded-full bg-primary text-white ${isRefreshing ? 'opacity-50 cursor-not-allowed' : 'hover:bg-purple-700'}`}
+                onClick={refreshData}
+                disabled={isRefreshing}
+                title="Refresh data"
+              >
+                <FaSync className={isRefreshing ? 'animate-spin' : ''} />
+              </button>
+            </div>
+            <Dashboard 
+              instances={instances} 
+              rooms={rooms}
+              onAddToRoom={addToRoom}
+              onRemoveFromRoom={removeFromRoom}
+              onEditInstanceTitle={editInstanceTitle}
+            />
+          </>
         )}
       </main>
     </div>

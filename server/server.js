@@ -151,6 +151,11 @@ app.get('/api/instances', (req, res) => {
     res.json(instances);
 });
 
+// Add a heartbeat endpoint that combines rooms and instances data
+app.get('/api/heartbeat', (req, res) => {
+    res.json({ instances, rooms });
+});
+
 // Handle simulated status changes
 // This would be connected to the actual simulators in a real implementation
 setInterval(() => {
