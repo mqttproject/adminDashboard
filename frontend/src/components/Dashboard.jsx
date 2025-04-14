@@ -8,10 +8,10 @@ const Dashboard = ({ instances, rooms, onAddToRoom, onRemoveFromRoom, onEditInst
     const [isDragging, setIsDragging] = useState(false)
 
     // Get the unassigned room and other rooms separately
-    const unassignedRoom = rooms.find(room => room.id === 'unassigned') || { id: 'unassigned', instances: [] }
+    const unassignedRoom = rooms.find(room => room.id === 'unassigned') || { id: 'unassigned', title: 'Standalone Instances', instances: [] }
     const regularRooms = rooms.filter(room => room.id !== 'unassigned')
     
-    // Filter regular rooms based on search term, but don't filter during drag operations
+    // Filter regular rooms based on search term
     const filteredRooms = isDragging
         ? regularRooms
         : regularRooms.filter(room =>
@@ -25,10 +25,9 @@ const Dashboard = ({ instances, rooms, onAddToRoom, onRemoveFromRoom, onEditInst
             })
         )
 
-    // Get unassigned instances and filter them by search term
+    // Get unassigned instances and filter them
     const unassignedInstances = instances.filter(instance => 
-        unassignedRoom.instances.includes(instance.id) || 
-        !rooms.some(room => room.instances.includes(instance.id))
+        unassignedRoom.instances.includes(instance.id)
     )
     
     const filteredUnassignedInstances = isDragging
@@ -39,7 +38,6 @@ const Dashboard = ({ instances, rooms, onAddToRoom, onRemoveFromRoom, onEditInst
         )
 
     const handleDragStart = () => {
-        // Disable filtering during dragging to prevent issues
         setIsDragging(true);
     };
 
@@ -47,8 +45,6 @@ const Dashboard = ({ instances, rooms, onAddToRoom, onRemoveFromRoom, onEditInst
         setIsDragging(false);
 
         const { destination, source, draggableId } = result;
-
-        console.log('Drag end:', { destination, source, draggableId });
 
         // Dropped outside a droppable area
         if (!destination) {
@@ -66,13 +62,13 @@ const Dashboard = ({ instances, rooms, onAddToRoom, onRemoveFromRoom, onEditInst
         // Moving between different areas
         if (source.droppableId !== destination.droppableId) {
             if (destination.droppableId === 'unassigned') {
-                // Just remove from source room - it will automatically appear in unassigned
+                // Moving to unassigned room
                 onRemoveFromRoom(draggableId, source.droppableId);
             } else if (source.droppableId === 'unassigned') {
                 // Moving from unassigned to a room
                 onAddToRoom(draggableId, destination.droppableId);
             } else {
-                // For room-to-room transfer, use addToRoom which now handles removal from other rooms
+                // Moving from one room to another
                 onAddToRoom(draggableId, destination.droppableId);
             }
         }
@@ -95,7 +91,7 @@ const Dashboard = ({ instances, rooms, onAddToRoom, onRemoveFromRoom, onEditInst
                             onRemoveFromRoom={onRemoveFromRoom}
                             onAddToRoom={onAddToRoom}
                             onEditInstanceTitle={onEditInstanceTitle}
-                            allRooms={rooms}
+                            allRooms={regularRooms}
                             droppableId={room.id}
                         />
                     ))}
@@ -118,7 +114,7 @@ const Dashboard = ({ instances, rooms, onAddToRoom, onRemoveFromRoom, onEditInst
                 </div>
             </div>
         </DragDropContext>
-    )
-}
+    );
+};
 
 export default Dashboard

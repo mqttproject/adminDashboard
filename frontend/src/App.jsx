@@ -1,58 +1,62 @@
 import { useState, useEffect } from 'react'
-import { io } from 'socket.io-client'
 import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
 
-const socket = io('http://localhost:3000')
+// API base URL
+const API_URL = 'http://localhost:3000/api';
 
 function App() {
   const [instances, setInstances] = useState([])
   const [rooms, setRooms] = useState([])
   const [isLoading, setIsLoading] = useState(true)
 
+  // Fetch initial data
   useEffect(() => {
-    // Connect to socket.io
-    socket.on('connect', () => {
-      console.log('Connected to WebSocket server')
-    })
+    const fetchInitialData = async () => {
+      try {
+        const response = await fetch(`${API_URL}/initial-data`);
+        const data = await response.json();
+        setInstances(data.instances);
+        setRooms(data.rooms);
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error fetching initial data:', error);
+      }
+    };
 
-    // Get initial data
-    socket.on('initialData', (data) => {
-      setInstances(data.instances)
-      setRooms(data.rooms)
-      setIsLoading(false)
-    })
+    fetchInitialData();
+  }, []);
 
-    // Listen for instance updates
-    socket.on('instanceUpdate', (updatedInstance) => {
-      setInstances(prev => prev.map(instance =>
-        instance.id === updatedInstance.id ? updatedInstance : instance
-      ))
-    })
+  // Poll for updates every 5 seconds
+  useEffect(() => {
+    if (isLoading) return;
 
-    // Listen for room updates
-    socket.on('roomUpdate', (updatedRooms) => {
-      setRooms(updatedRooms)
-    })
+    const pollInterval = setInterval(async () => {
+      try {
+        // Poll for instance updates
+        const instancesResponse = await fetch(`${API_URL}/instances`);
+        const instancesData = await instancesResponse.json();
+        setInstances(instancesData);
 
-    // Request initial data
-    socket.emit('getInitialData')
+        // Poll for room updates
+        const roomsResponse = await fetch(`${API_URL}/rooms`);
+        const roomsData = await roomsResponse.json();
+        setRooms(roomsData);
+      } catch (error) {
+        console.error('Error polling for updates:', error);
+      }
+    }, 5000);
 
-    return () => {
-      socket.off('connect')
-      socket.off('initialData')
-      socket.off('instanceUpdate')
-      socket.off('roomUpdate')
-    }
-  }, [])
+    return () => clearInterval(pollInterval);
+  }, [isLoading]);
 
-  const addToRoom = (instanceId, roomId) => {
+  const addToRoom = async (instanceId, roomId) => {
     // First update local state for immediate UI feedback
     const updatedRooms = rooms.map(room => ({
       ...room,
       instances: room.instances.filter(id => id !== instanceId)
     }));
-
+    
     setRooms(updatedRooms.map(room => {
       if (room.id === roomId) {
         return {
@@ -63,11 +67,27 @@ function App() {
       return room;
     }));
 
-    // Then emit the event to the server
-    socket.emit('addInstanceToRoom', { instanceId, roomId });
+    // Then send API request
+    try {
+      const response = await fetch(`${API_URL}/rooms/add-instance`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ instanceId, roomId }),
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        setRooms(data.rooms); // Update with server response to ensure consistency
+      }
+    } catch (error) {
+      console.error('Error adding instance to room:', error);
+      // Could add error handling and rollback UI state here
+    }
   };
 
-  const removeFromRoom = (instanceId, roomId) => {
+  const removeFromRoom = async (instanceId, roomId) => {
     // First update local state for immediate UI feedback
     setRooms(rooms.map(room => {
       if (room.id === roomId) {
@@ -85,20 +105,57 @@ function App() {
       return room;
     }));
 
-    // Then emit the event to the server
-    socket.emit('removeInstanceFromRoom', { instanceId, roomId });
+    // Then send API request
+    try {
+      const response = await fetch(`${API_URL}/rooms/remove-instance`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ instanceId, roomId }),
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        setRooms(data.rooms); // Update with server response to ensure consistency
+      }
+    } catch (error) {
+      console.error('Error removing instance from room:', error);
+      // Could add error handling and rollback UI state here
+    }
   };
 
-  const editInstanceTitle = (instanceId, newTitle) => {
+  const editInstanceTitle = async (instanceId, newTitle) => {
     // First update local state for immediate UI feedback
-    setInstances(instances.map(instance =>
-      instance.id === instanceId
-        ? { ...instance, title: newTitle }
+    setInstances(instances.map(instance => 
+      instance.id === instanceId 
+        ? { ...instance, title: newTitle } 
         : instance
     ));
 
-    // Then emit the event to the server
-    socket.emit('updateInstanceTitle', { instanceId, title: newTitle });
+    // Then send API request
+    try {
+      const response = await fetch(`${API_URL}/instances/update-title`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ instanceId, title: newTitle }),
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        // Update the specific instance with the server response
+        setInstances(prevInstances => 
+          prevInstances.map(instance => 
+            instance.id === instanceId ? data.instance : instance
+          )
+        );
+      }
+    } catch (error) {
+      console.error('Error updating instance title:', error);
+      // Could add error handling and rollback UI state here
+    }
   };
 
   return (
@@ -110,8 +167,8 @@ function App() {
             <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
           </div>
         ) : (
-          <Dashboard
-            instances={instances}
+          <Dashboard 
+            instances={instances} 
             rooms={rooms}
             onAddToRoom={addToRoom}
             onRemoveFromRoom={removeFromRoom}

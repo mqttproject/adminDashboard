@@ -1,18 +1,11 @@
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
 const cors = require('cors');
+const bodyParser = require('body-parser');
 
 const app = express();
 app.use(cors());
-
-const server = http.createServer(app);
-const io = new Server(server, {
-    cors: {
-        origin: '*',
-        methods: ['GET', 'POST']
-    }
-});
+app.use(bodyParser.json());
 
 // Mock data for simulator instances and rooms
 let instances = [
@@ -89,76 +82,90 @@ let rooms = [
     }
 ];
 
-// Socket.IO connection handling
-io.on('connection', (socket) => {
-    console.log('Client connected:', socket.id);
+// API Routes
 
-    // Send initial data to client
-    socket.on('getInitialData', () => {
-        socket.emit('initialData', { instances, rooms });
-    });
-
-    // Handle adding instance to room
-    socket.on('addInstanceToRoom', ({ instanceId, roomId }) => {
-        const room = rooms.find(r => r.id === roomId);
-        if (room && !room.instances.includes(instanceId)) {
-            // Remove from other rooms first, including unassigned
-            rooms.forEach(r => {
-                r.instances = r.instances.filter(id => id !== instanceId);
-            });
-
-            // Add to the new room
-            room.instances.push(instanceId);
-            io.emit('roomUpdate', rooms);
-        }
-    });
-
-    // Handle removing instance from room
-    socket.on('removeInstanceFromRoom', ({ instanceId, roomId }) => {
-        const room = rooms.find(r => r.id === roomId);
-        if (room) {
-            room.instances = room.instances.filter(id => id !== instanceId);
-            
-            // Add to unassigned room
-            const unassignedRoom = rooms.find(r => r.id === 'unassigned');
-            if (unassignedRoom && !unassignedRoom.instances.includes(instanceId)) {
-                unassignedRoom.instances.push(instanceId);
-            }
-            
-            io.emit('roomUpdate', rooms);
-        }
-    });
-
-    // Handle updating instance title
-    socket.on('updateInstanceTitle', ({ instanceId, title }) => {
-        const instance = instances.find(i => i.id === instanceId);
-        if (instance) {
-            instance.title = title;
-            io.emit('instanceUpdate', instance);
-        }
-    });
-
-    // Handle simulated status changes
-    // This would be connected to the actual simulators in a real implementation
-    const simulateStatusChanges = setInterval(() => {
-        const randomIndex = Math.floor(Math.random() * instances.length);
-        const instance = instances[randomIndex];
-
-        // Toggle status occasionally
-        if (Math.random() < 0.1) {
-            instance.status = instance.status === 'online' ? 'offline' : 'online';
-            io.emit('instanceUpdate', instance);
-        }
-    }, 10000); // Every 10 seconds
-
-    socket.on('disconnect', () => {
-        console.log('Client disconnected:', socket.id);
-        clearInterval(simulateStatusChanges);
-    });
+// Get initial data
+app.get('/api/initial-data', (req, res) => {
+    res.json({ instances, rooms });
 });
+
+// Add instance to room
+app.post('/api/rooms/add-instance', (req, res) => {
+    const { instanceId, roomId } = req.body;
+    const room = rooms.find(r => r.id === roomId);
+    
+    if (room && !room.instances.includes(instanceId)) {
+        // Remove from other rooms first, including unassigned
+        rooms.forEach(r => {
+            r.instances = r.instances.filter(id => id !== instanceId);
+        });
+
+        // Add to the new room
+        room.instances.push(instanceId);
+        res.json({ success: true, rooms });
+    } else {
+        res.status(400).json({ success: false, message: 'Room not found or instance already in room' });
+    }
+});
+
+// Remove instance from room
+app.post('/api/rooms/remove-instance', (req, res) => {
+    const { instanceId, roomId } = req.body;
+    const room = rooms.find(r => r.id === roomId);
+    
+    if (room) {
+        room.instances = room.instances.filter(id => id !== instanceId);
+        
+        // Add to unassigned room
+        const unassignedRoom = rooms.find(r => r.id === 'unassigned');
+        if (unassignedRoom && !unassignedRoom.instances.includes(instanceId)) {
+            unassignedRoom.instances.push(instanceId);
+        }
+        
+        res.json({ success: true, rooms });
+    } else {
+        res.status(400).json({ success: false, message: 'Room not found' });
+    }
+});
+
+// Update instance title
+app.put('/api/instances/update-title', (req, res) => {
+    const { instanceId, title } = req.body;
+    const instance = instances.find(i => i.id === instanceId);
+    
+    if (instance) {
+        instance.title = title;
+        res.json({ success: true, instance });
+    } else {
+        res.status(400).json({ success: false, message: 'Instance not found' });
+    }
+});
+
+// Get all rooms
+app.get('/api/rooms', (req, res) => {
+    res.json(rooms);
+});
+
+// Get all instances
+app.get('/api/instances', (req, res) => {
+    res.json(instances);
+});
+
+// Handle simulated status changes
+// This would be connected to the actual simulators in a real implementation
+setInterval(() => {
+    const randomIndex = Math.floor(Math.random() * instances.length);
+    const instance = instances[randomIndex];
+
+    // Toggle status occasionally
+    if (Math.random() < 0.1) {
+        instance.status = instance.status === 'online' ? 'offline' : 'online';
+        // No need to emit, clients will poll for updates
+    }
+}, 10000); // Every 10 seconds
 
 // Start server
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
