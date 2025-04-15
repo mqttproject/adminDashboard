@@ -5,12 +5,19 @@ const morgan = require('morgan');
 const helmet = require('helmet');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
+const mongoose = require('mongoose')
 
 // Import routes
 const authRoutes = require('./routes/auth_route');
 const apiRoutes = require('./routes/api');
 const dashboardRoutes = require('./routes/dashboard');
 const pollingService = require('./services/polling');
+const connectDB = require('./config/db');
+const simulatorRegistry = ('./services/simulator_registry');
+
+// Connection to database
+require('dotenv').config();
+connectDB();
 
 // Initialize app
 const app = express();
@@ -20,7 +27,36 @@ app.use(helmet()); // Security headers
 app.use(cors()); // CORS for dashboard requests
 app.use(express.json()); // Parsing JSON bodies
 app.use(morgan('combined')); // Logging
-app.use(bodyParser.json());
+app.use(bodyParser.json());  
+
+// Initialization of an empty rooms collection in case none exist
+async function initRooms() {
+    const Room = require('./models/room');
+    const count = await Room.countDocuments();
+    
+    if (count === 0) {
+      await Room.insertMany([
+        {
+          id: 'room-1',
+          title: 'Simulator group 1',
+          simulatorIds: []
+        },
+        {
+          id: 'room-2',
+          title: 'Simulator group 2',
+          simulatorIds: []
+        },
+        {
+          id: 'unassigned',
+          title: 'Unassigned',
+          simulatorIds: []
+        }
+      ]);
+      console.log('Initialized default rooms');
+    }
+  }
+  
+initRooms().catch(err => console.error('Error initializing rooms:', err));
 
 // Mock data for simulator instances and rooms
 let instances = [

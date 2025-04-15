@@ -1,8 +1,9 @@
 const axios = require('axios');
+const Simulator = require('../models/simulator');
+const Device = require('../models/device');
 const simulatorRegistry = require('./simulator_registry');
 
 class PollingService {
-  // Method to poll all simulators every ten seconds (Adjust as necessary)
   constructor(interval = 10000) {
     this.interval = interval;
     this.timerId = null;
@@ -24,14 +25,47 @@ class PollingService {
   async pollAllDevices() {
     console.log('Polling all devices...');
     
-    for (const id of simulatorRegistry.getAllSimulators()) {
-      const url = simulatorRegistry.getSimulatorUrl(id);
-      try {
-        const response = await axios.get(`${url}/device/${id}`);
-        simulatorRegistry.updateState(id, response.data);
-      } catch (error) {
-        console.error(`Error polling device ${id}: ${error.message}`);
+    try {
+      const simulators = await Simulator.find({});
+      
+      for (const simulator of simulators) {
+        // Mark simulator as seen
+        await Simulator.updateOne(
+          { id: simulator.id },
+          { lastSeen: Date.now() }
+        );
+        
+        // Poll each device for this simulator
+        const devices = await Device.find({ simulatorId: simulator.id });
+        
+        for (const device of devices) {
+          try {
+            const response = await axios.get(`${simulator.url}/device/${device.id}`);
+            
+            // Update device state in registry
+            await simulatorRegistry.updateState(device.id, response.data);
+          } catch (error) {
+            console.error(`Error polling device ${device.id}:`, error.message);
+            
+            // If connection fails, mark simulator as offline
+            if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+              await Simulator.updateOne(
+                { id: simulator.id },
+                { status: 'offline' }
+              );
+            }
+          }
+        }
       }
+      
+      // Update simulators that haven't been seen for a while to offline
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      await Simulator.updateMany(
+        { lastSeen: { $lt: fiveMinutesAgo } },
+        { status: 'offline' }
+      );
+    } catch (error) {
+      console.error('Error in polling service:', error);
     }
   }
 }
