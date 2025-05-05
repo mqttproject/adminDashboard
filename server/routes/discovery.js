@@ -120,25 +120,24 @@ router.post('/simulators/register', async (req, res) => {
   }
 });
 
-// Token generation endpoint
-router.post('/simulators/token', async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const timeToLive = req.body.timeToLive || '30d';
+// router.post('/simulators/token', async (req, res) => {
+//   try {
+//     const userId = req.user.userId;
+//     const timeToLive = req.body.timeToLive || '30d';
 
-    const token = jwt.sign(
-      {
-        userId: userId,
-      },
-      process.env.JWT_SECRET || 'your_jwt_secret_key',
-      {
-        expiresIn: timeToLive
-      })
-    res.status(201).json({ token })
-  } catch (error) {
-    console.error('Error generating token:', error);
-    res.status(500).json({ error: 'Error generating token' });
-  }
-});
+//     const token = jwt.sign(
+//       {
+//         userId: userId,
+//       },
+//       process.env.JWT_SECRET || 'your_jwt_secret_key',
+//       {
+//         expiresIn: timeToLive
+//       })
+//     res.status(201).json({ token })
+//   } catch (error) {
+//     console.error('Error generating token:', error);
+//     res.status(500).json({ error: 'Error generating token' });
+//   }
+// });
 
 module.exports = router;

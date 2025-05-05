@@ -1,14 +1,15 @@
 import { useState } from 'react'
 import StrictModeDroppable from './StrictModeDroppable'
-import InstanceCard from './InstanceCard'
+import SimulatorCard from './SimulatorCard'
 import { FaCog } from '@react-icons/all-files/fa/FaCog'
+import { Card } from './ui/card'
 
 const RoomGroup = ({
     room,
-    instances,
+    simulators,
     onAddToRoom,
     onRemoveFromRoom,
-    onEditInstanceTitle,
+    onEditSimulatorTitle,
     allRooms,
     droppableId,
     isStandalone = false
@@ -16,19 +17,19 @@ const RoomGroup = ({
     const [isExpanded, setIsExpanded] = useState(true)
 
     return (
-        <div className="bg-white rounded-lg shadow">
+        <Card className="overflow-hidden">
             {!isStandalone && (
                 <div className="p-4 border-b flex justify-between items-center">
                     <div className="flex items-center">
                         <h2 className="text-xl font-semibold">{room?.title || 'Room'}</h2>
                         <button
-                            className="ml-2 text-gray-500 hover:text-primary"
+                            className="ml-2 text-muted-foreground hover:text-primary"
                             onClick={() => setIsExpanded(!isExpanded)}
                         >
                             {isExpanded ? '▼' : '►'}
                         </button>
                     </div>
-                    <button className="p-2 text-gray-500 hover:text-primary rounded-full">
+                    <button className="p-2 text-muted-foreground hover:text-primary rounded-full">
                         <FaCog />
                     </button>
                 </div>
@@ -36,7 +37,7 @@ const RoomGroup = ({
 
             <StrictModeDroppable
                 droppableId={droppableId}
-                type="INSTANCE"
+                type="SIMULATOR"
                 direction="horizontal"
                 isDropDisabled={!isExpanded && !isStandalone}
             >
@@ -45,27 +46,27 @@ const RoomGroup = ({
                         ref={provided.innerRef}
                         {...provided.droppableProps}
                         className={`transition-all duration-300 ${(!isExpanded && !isStandalone) ? 'h-0 overflow-hidden p-0' : 'p-4'
-                            } ${snapshot.isDraggingOver ? 'bg-blue-100 rounded-lg' : ''
+                            } ${snapshot.isDraggingOver ? 'bg-accent/50 rounded-lg' : ''
                             }`}
                     >
-                        <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 ${instances.length === 0 ? 'min-h-[100px]' : ''}`}>
-                            {instances.map((instance, index) => (
-                                <InstanceCard
-                                    key={instance.id}
-                                    instance={instance}
+                        <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 ${simulators.length === 0 ? 'min-h-[100px]' : ''}`}>
+                            {simulators.map((simulator, index) => (
+                                <SimulatorCard
+                                    key={simulator.id}
+                                    simulator={simulator}
                                     index={index}
-                                    onEditTitle={onEditInstanceTitle}
-                                    onRemoveFromRoom={(instanceId) => onRemoveFromRoom(instanceId, room?.id)}
+                                    onEditTitle={onEditSimulatorTitle}
+                                    onRemoveFromRoom={(simulatorId) => onRemoveFromRoom(simulatorId, room?.id)}
                                     rooms={isStandalone ? allRooms : allRooms?.filter(r => r.id !== room.id)}
-                                    onAddToRoom={(roomId) => onAddToRoom(instance.id, roomId)}
+                                    onAddToRoom={(roomId) => onAddToRoom(simulator.id, roomId)}
                                     inRoom={!isStandalone}
                                 />
                             ))}
 
                             {/* Empty state */}
-                            {instances.length === 0 && (
-                                <div className="h-24 col-span-3 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-gray-400">
-                                    Drop instances here
+                            {simulators.length === 0 && (
+                                <div className="h-24 col-span-3 border-2 border-dashed border-border rounded-lg flex items-center justify-center text-muted-foreground">
+                                    Drop simulators here
                                 </div>
                             )}
 
@@ -75,7 +76,7 @@ const RoomGroup = ({
                     </div>
                 )}
             </StrictModeDroppable>
-        </div>
+        </Card>
     )
 }
 

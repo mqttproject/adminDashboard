@@ -1,38 +1,91 @@
 const express = require('express');
+const router = express.Router();
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
+const User = require('../models/user');
+const { authenticate } = require('../middleware/auth_mw');
 
-const router = express.Router();
+router.post('/register', async (req, res) => {
+  try {
+    const { username, password } = req.body;
 
-// "Database" for development, something like Mongo for prod
-const users = [
-  {
-    id: 1,
-    username: 'admin',
-    passwordHash: '$2b$10$X7SogAYSvtNIzc5gYJKqDeRbJp1p8ZV9mxj/FG9krS3ElGOxMNO3G' // Example hashed password for prod
+    // Check if user already exists
+    const existingUser = await User.findOne({ username });
+    if (existingUser) {
+      return res.status(400).json({ error: 'Username already exists' });
+    }
+
+    // Create new user
+    const user = new User({
+      username,
+      password,
+      simulatorIds: []
+    });
+
+    await user.save();
+
+    // Generate token with UUID as user identifier
+    const token = jwt.sign(
+      {
+        userId: user.userId,
+        username: user.username
+      },
+      process.env.JWT_SECRET || 'your_jwt_secret_key',
+      {
+        expiresIn: '30d'
+      }
+    );
+    res.status(201).json({ token, user: { userId: user.userId, username: user.username } });
+  } catch (error) {
+    res.status(500).json({ error: "Error crating account" });
   }
-];
+});
 
 router.post('/login', async (req, res) => {
-  const { username, password } = req.body;
-  
-  const user = users.find(u => u.username === username);
-  if (!user) {
-    return res.status(401).json({ error: 'Invalid credentials' });
+  try {
+    const { username, password } = req.body;
+
+    // Find user
+    const user = await User.findOne({ username });
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Check password
+    const validPassword = await user.comparePassword(password);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Generate token with UUID as user identifier
+    const token = jwt.sign(
+      {
+        userId: user.userId,
+        username: user.username
+      },
+      process.env.JWT_SECRET || 'your_jwt_secret_key',
+      {
+        expiresIn: '30d'
+      }
+    );
+
+    res.json({ token, user: { userId: user.userId, username: user.username } });
+  } catch (error) {
+    res.status(500).json({ error: "Error logging in" });
   }
-  
-  const validPassword = await bcrypt.compare(password, user.passwordHash);
-  if (!validPassword) {
-    return res.status(401).json({ error: 'Invalid credentials' });
+});
+
+// Get user profile
+router.get('/profile', authenticate, async (req, res) => {
+  try {
+    const user = await User.findOne({ userId: req.user.userId }).select('-password').select('-__v').select('-_id');
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json({ user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  
-  const token = jwt.sign(
-    { id: user.id, username: user.username },
-    process.env.JWT_SECRET,
-    { expiresIn: '1h' }
-  );
-  
-  res.json({ token });
 });
 
 module.exports = router;

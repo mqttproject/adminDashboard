@@ -2,29 +2,29 @@ import { FaKey } from '@react-icons/all-files/fa/FaKey'
 import { FaVideo } from '@react-icons/all-files/fa/FaVideo'
 
 
-const DeviceList = ({ devices }) => {
+const DeviceList = ({ devices = [] }) => {
     if (!devices || devices.length === 0) {
-        return <p className="text-sm text-gray-500">No devices</p>
+        return (
+            <div className="mt-4">
+                <h4 className="font-medium mb-2">Devices</h4>
+                <p className="text-sm text-muted-foreground">No devices connected</p>
+            </div>
+        )
     }
 
     return (
-        <div>
-            <p className="text-sm text-gray-500 mb-2">Devices</p>
+        <div className="mt-4">
+            <h4 className="font-medium mb-2">Devices ({devices.length})</h4>
             <div className="space-y-2">
-                {devices.map(device => (
-                    <div key={device.id} className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded-md">
-                        <div className="flex items-center">
-                            {device.type === 'motion_sensor' ? (
-                                <FaVideo className="text-blue-500 mr-2" />
-                            ) : (
-                                <FaKey className="text-blue-500 mr-2" />
-                            )}
-                            <div>
-                                <p className="font-medium">{device.name}</p>
-                                <p className="text-xs text-gray-500">Room {device.room}</p>
+                {devices.map((device, index) => (
+                    <div key={index} className="flex items-center space-x-2 bg-accent p-2 rounded-md">
+                        <div className={`w-2 h-2 rounded-full ${device.status === 'online' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                        <div>
+                            <div className="text-sm font-medium">
+                                {device.name}
                             </div>
+                            <span className="text-xs text-muted-foreground">{device.ip}</span>
                         </div>
-                        <span className="text-xs text-gray-500">{device.ip}</span>
                     </div>
                 ))}
             </div>

@@ -1,5 +1,5 @@
 {
-    "name": "simulator-dashboard-backend",
+    "name": "hiveiotbackend",
     "version": "1.0.0",
     "description": "Backend for simulator instance management",
     "main": "server.js",
@@ -18,7 +18,8 @@
         "jsonwebtoken": "^9.0.2",
         "mongoose": "^8.13.2",
         "morgan": "^1.10.0",
-        "simdash": "file:.."
+        "hiveiot": "file:..",
+        "uuid": "^9.0.1"
     },
     "devDependencies": {
         "nodemon": "^3.0.1"
