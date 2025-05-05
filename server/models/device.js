@@ -7,7 +7,8 @@ const deviceSchema = new mongoose.Schema({
   broker: { type: String },
   on: { type: Boolean, default: false },
   rebooting: { type: Boolean, default: false },
-  lastUpdated: { type: Date, default: Date.now }
+  lastUpdated: { type: Date, default: Date.now },
+  metadata: { type: mongoose.Schema.Types.Mixed } // Metadata for any additional device info
 });
 
 module.exports = mongoose.model('Device', deviceSchema);

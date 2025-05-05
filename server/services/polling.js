@@ -30,31 +30,43 @@ class PollingService {
       
       for (const simulator of simulators) {
         // Mark simulator as seen
-        await Simulator.updateOne(
+        await Simulator.findOneAndUpdate(
           { id: simulator.id },
           { lastSeen: Date.now() }
         );
         
-        // Poll each device for this simulator
-        const devices = await Device.find({ simulatorId: simulator.id });
-        
-        for (const device of devices) {
-          try {
-            const response = await axios.get(`${simulator.url}/device/${device.id}`);
-            
-            // Update device state in registry
-            await simulatorRegistry.updateState(device.id, response.data);
-          } catch (error) {
-            console.error(`Error polling device ${device.id}:`, error.message);
-            
-            // If connection fails, mark simulator as offline
-            if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-              await Simulator.updateOne(
-                { id: simulator.id },
-                { status: 'offline' }
-              );
+        try {
+          // Check if the simulator is reachable
+          await axios.get(`${simulator.url}/configuration`, { timeout: 5000 });
+          
+          // If reachable => update status to online
+          await Simulator.findOneAndUpdate(
+            { id: simulator.id },
+            { status: 'online', lastSeen: Date.now() }
+          );
+          
+          // Poll each device for this particular simulator
+          const devices = await Device.find({ simulatorId: simulator.id });
+          
+          for (const device of devices) {
+            try {
+              const response = await axios.get(`${simulator.url}/device/${device.id}`, 
+                { timeout: 3000 });
+              
+              // Update device state in registry
+              await simulatorRegistry.updateState(device.id, response.data);
+            } catch (deviceError) {
+              console.error(`Error polling device ${device.id}:`, deviceError.message);
             }
           }
+        } catch (simulatorError) {
+          console.error(`Error connecting to simulator ${simulator.id}:`, simulatorError.message);
+          
+          // Mark simulator as offline
+          await Simulator.findOneAndUpdate(
+            { id: simulator.id },
+            { status: 'offline' }
+          );
         }
       }
       

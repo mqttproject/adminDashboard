@@ -9,8 +9,13 @@ const router = express.Router();
 router.use(authenticate);
 
 // Get all device states
-router.get('/devices', (req, res) => {
-  res.json(simulatorRegistry.getAllStates());
+router.get('/devices', async (req, res) => {
+  try {
+    const states = await simulatorRegistry.getAllStates();
+    res.json(states);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch device states' });
+  }
 });
 
 // Get specific device
@@ -27,6 +32,7 @@ router.get('/device/:id', async (req, res) => {
     simulatorRegistry.updateState(id, response.data);
     res.json(response.data);
   } catch (error) {
+    console.error(`Error fetching device ${id}:`, error.message);
     res.status(error.response?.status || 500).json({
       error: 'Error communicating with device',
       details: error.message
@@ -62,6 +68,7 @@ router.post('/device/:id/:action', async (req, res) => {
     
     res.json(response.data);
   } catch (error) {
+    console.error(`Error controlling device ${id}:`, error.message);
     res.status(error.response?.status || 500).json({
       error: 'Error controlling device',
       details: error.message
@@ -88,6 +95,7 @@ router.post('/device/:id', async (req, res) => {
     });
     res.json(response.data);
   } catch (error) {
+    console.error(`Error creating device ${id}:`, error.message);
     res.status(error.response?.status || 500).json({
       error: 'Error creating device',
       details: error.message
@@ -119,6 +127,7 @@ router.post('/devices', async (req, res) => {
 
     res.json(response.data)
   } catch (error) {
+    console.error(`Error creating multiple devices:`, error.message);
     res.status(error.response?.status || 500).json({
       error: 'Error creating devices',
       details: error.message
@@ -143,6 +152,7 @@ router.post('/device/:id/delete', async (req, res) =>{
     
     res.json(response.data);
   } catch (error) {
+    console.error(`Error deleting device ${id}:`, error.message);
     res.status(error.response?.status || 500).json({
       error: 'Error deleting device',
       details: error.message
@@ -152,20 +162,27 @@ router.post('/device/:id/delete', async (req, res) =>{
 
 // Get configuration
 router.get('/configuration', async (req, res) => {
-  // This would need to aggregate configurations from all simulators
-  const configs = {};
-  
-  for (const id of simulatorRegistry.getAllSimulators()) {
-    const url = simulatorRegistry.getSimulatorUrl(id);
-    try {
-      const response = await axios.get(`${url}/configuration`);
-      configs[id] = response.data;
-    } catch (error) {
-      console.error(`Error fetching config for ${id}: ${error.message}`);
+  try {
+    const simulators = await simulatorRegistry.getAllSimulators();
+    const configs = {};
+    
+    for (const simulatorId of simulators) {
+      const simulator = await Simulator.findOne({ id: simulatorId });
+      if (!simulator || !simulator.url) continue;
+      
+      try {
+        const response = await axios.get(`${simulator.url}/configuration`);
+        configs[simulatorId] = response.data;
+      } catch (error) {
+        console.error(`Error fetching config for ${simulatorId}: ${error.message}`);
+      }
     }
-  }
 
-  res.json(configs);
+    res.json(configs);
+  } catch (error) {
+    console.error('Error fetching configurations:', error);
+    res.status(500).json({ error: 'Failed to fetch configurations' });
+  }
 });
 
 // Update configuration
@@ -188,6 +205,7 @@ router.post('/configuration', async (req, res) => {
     
     res.json(response.data);
   } catch (error) {
+    console.error('Error updating configuration:', error.message);
     res.status(error.response?.status || 500).json({
       error: 'Error updating configuration',
       details: error.message
@@ -211,6 +229,7 @@ router.post('/reboot', async (req, res) => {
     
     res.json(response.data);
   } catch (error) {
+    console.error('Error rebooting simulator:', error.message);
     res.status(error.response?.status || 500).json({
       error: 'Error rebooting simulator',
       details: error.message

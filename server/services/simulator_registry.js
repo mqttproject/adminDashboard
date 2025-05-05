@@ -74,12 +74,19 @@ class SimulatorRegistry {
   // Update the state of a device
   async updateState(deviceId, state) {
     try {
+      const updateData = {
+        lastUpdated: Date.now()
+      };
+      
+      // Add any properties from state that we want to save
+      if (state.on !== undefined) updateData.on = state.on;
+      if (state.rebooting !== undefined) updateData.rebooting = state.rebooting;
+      if (state.action) updateData.action = state.action;
+      if (state.broker) updateData.broker = state.broker;
+      
       await Device.findOneAndUpdate(
         { id: deviceId },
-        {
-          ...state,
-          lastUpdated: Date.now()
-        }
+        updateData
       );
       
       // Update cache
