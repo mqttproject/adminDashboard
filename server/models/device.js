@@ -7,6 +7,10 @@ const deviceSchema = new mongoose.Schema({
   broker: { type: String },
   on: { type: Boolean, default: false },
   rebooting: { type: Boolean, default: false },
+  lastInfo: {
+    time: { type: Date, default: null },
+    data: { type: String, default: null }
+  },
   lastUpdated: { type: Date, default: Date.now }
 });
 

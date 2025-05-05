@@ -1,24 +1,26 @@
 import { useState, useEffect, useCallback } from 'react'
 import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
+import LoadingSpinner from './components/LoadingSpinner'
 import { FaSync } from '@react-icons/all-files/fa/FaSync'
-
-// API base URL
-const API_URL = 'http://localhost:3000/api';
+import { apiService } from './services/api'
+import { useAuth } from './context/AuthContext'
 
 function App() {
-  const [instances, setInstances] = useState([])
+  const [simulators, setSimulators] = useState([])
   const [rooms, setRooms] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const { isAuthenticated } = useAuth()
 
   // Create a reusable function to fetch data
   const fetchData = useCallback(async () => {
     try {
       setIsRefreshing(true);
-      const response = await fetch(`${API_URL}/heartbeat`);
-      const data = await response.json();
-      setInstances(data.instances);
+      const response = await apiService.fetchHeartbeat();
+      const data = response.data;
+
+      setSimulators(data.simulators);
       setRooms(data.rooms);
       setIsLoading(false);
       setIsRefreshing(false);
@@ -37,32 +39,37 @@ function App() {
 
   // Initial data fetch
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    // Only fetch if authenticated
+    if (isAuthenticated()) {
+      fetchData();
+    } else {
+      setIsLoading(false); // Stop loading if not authenticated
+    }
+  }, [fetchData, isAuthenticated]);
 
-  // Poll for updates every 5 seconds
+  // Poll for updates every 20 seconds
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading || !isAuthenticated()) return;
 
     const pollInterval = setInterval(() => {
       fetchData();
     }, 20000);
 
     return () => clearInterval(pollInterval);
-  }, [isLoading, fetchData]);
+  }, [isLoading, fetchData, isAuthenticated]);
 
-  const addToRoom = async (instanceId, roomId) => {
+  const addToRoom = async (simulatorId, roomId) => {
     // First update local state for immediate UI feedback
     const updatedRooms = rooms.map(room => ({
       ...room,
-      instances: room.instances.filter(id => id !== instanceId)
+      simulators: room.simulators?.filter(id => id !== simulatorId) || []
     }));
-    
+
     setRooms(updatedRooms.map(room => {
       if (room.id === roomId) {
         return {
           ...room,
-          instances: [...room.instances, instanceId]
+          simulators: [...(room.simulators || []), simulatorId]
         };
       }
       return room;
@@ -70,109 +77,84 @@ function App() {
 
     // Then send API request
     try {
-      const response = await fetch(`${API_URL}/rooms/add-instance`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ instanceId, roomId }),
-      });
-      
-      const data = await response.json();
-      if (data.success) {
-        // Rather than just updating rooms directly, refresh all data to ensure consistency
-        await fetchData();
-      }
-    } catch (error) {
-      console.error('Error adding instance to room:', error);
-      // Refresh data to revert to server state in case of error
-      await fetchData();
-    }
-  };
+      const response = await apiService.addSimulatorToRoom(simulatorId, roomId);
 
-  const removeFromRoom = async (instanceId, roomId) => {
-    // First update local state for immediate UI feedback
-    setRooms(rooms.map(room => {
-      if (room.id === roomId) {
-        return {
-          ...room,
-          instances: room.instances.filter(id => id !== instanceId)
-        };
-      } else if (room.id === 'unassigned') {
-        // Add to unassigned room when removed from another room
-        return {
-          ...room,
-          instances: [...room.instances, instanceId]
-        };
-      }
-      return room;
-    }));
-
-    // Then send API request
-    try {
-      const response = await fetch(`${API_URL}/rooms/remove-instance`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ instanceId, roomId }),
-      });
-      
-      const data = await response.json();
-      if (data.success) {
+      if (response.data.success) {
         // Refresh all data to ensure consistency
         await fetchData();
       }
     } catch (error) {
-      console.error('Error removing instance from room:', error);
+      console.error('Error adding simulator to room:', error);
       // Refresh data to revert to server state in case of error
       await fetchData();
     }
   };
 
-  const editInstanceTitle = async (instanceId, newTitle) => {
+  const removeFromRoom = async (simulatorId, roomId) => {
     // First update local state for immediate UI feedback
-    setInstances(instances.map(instance => 
-      instance.id === instanceId 
-        ? { ...instance, title: newTitle } 
-        : instance
+    setRooms(rooms.map(room => {
+      if (room.id === roomId) {
+        // Handle both possible field names and guard against undefined
+        const simulators = room.simulators || room.simulatorIds || [];
+        return {
+          ...room,
+          simulators: simulators.filter(id => id !== simulatorId)
+        };
+      }
+      return room;
+    }));
+
+    // Then send API request
+    try {
+      const response = await apiService.removeSimulatorFromRoom(simulatorId, roomId);
+
+      if (response.data.success) {
+        // Refresh all data to ensure consistency
+        await fetchData();
+      }
+    } catch (error) {
+      console.error('Error removing simulator from room:', error);
+      // Refresh data to revert to server state in case of error
+      await fetchData();
+    }
+  };
+
+  const editSimulatorTitle = async (simulatorId, newTitle) => {
+    // First update local state for immediate UI feedback
+    setSimulators(simulators.map(simulator =>
+      simulator.id === simulatorId
+        ? { ...simulator, title: newTitle }
+        : simulator
     ));
 
     // Then send API request
     try {
-      const response = await fetch(`${API_URL}/instances/update-title`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ instanceId, title: newTitle }),
-      });
-      
-      const data = await response.json();
-      if (data.success) {
+      const response = await apiService.updateSimulatorTitle(simulatorId, newTitle);
+
+      if (response.data.success) {
         // Update all data to ensure consistency
         await fetchData();
       }
     } catch (error) {
-      console.error('Error updating instance title:', error);
+      console.error('Error updating simulator title:', error);
       // Refresh data to revert to server state in case of error
       await fetchData();
     }
   };
 
   return (
-    <div className="flex h-screen">
-      <Sidebar />
+    <div className="flex h-screen bg-background">
+      <Sidebar simulators={simulators} />
       <main className="flex-1 overflow-auto relative">
         {isLoading ? (
           <div className="flex justify-center items-center h-full">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+            <LoadingSpinner size="large" />
           </div>
         ) : (
           <>
             <div className="absolute top-4 right-4 z-10">
-              <button 
-                className={`p-2 rounded-full bg-primary text-white ${isRefreshing ? 'opacity-50 cursor-not-allowed' : 'hover:bg-purple-700'}`}
+              <button
+                className={`p-2 rounded-full bg-primary text-primary-foreground ${isRefreshing ? 'opacity-50 cursor-not-allowed' : 'hover:bg-primary/90'}`}
                 onClick={refreshData}
                 disabled={isRefreshing}
                 title="Refresh data"
@@ -180,18 +162,18 @@ function App() {
                 <FaSync className={isRefreshing ? 'animate-spin' : ''} />
               </button>
             </div>
-            <Dashboard 
-              instances={instances} 
+            <Dashboard
+              simulators={simulators}
               rooms={rooms}
               onAddToRoom={addToRoom}
               onRemoveFromRoom={removeFromRoom}
-              onEditInstanceTitle={editInstanceTitle}
+              onEditSimulatorTitle={editSimulatorTitle}
             />
           </>
         )}
       </main>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
