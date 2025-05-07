@@ -48,6 +48,7 @@ class SyncService {
   }
   
   async syncSimulatorDevices(simulator) {
+    
     if (!simulator || !simulator.id) {
       console.error('Invalid simulator object:', simulator);
       return;
@@ -58,34 +59,102 @@ class SyncService {
       return;
     }
     
-    console.log(`Checking simulator ${simulator.id} at ${simulator.url}`);
+    console.log(`Syncing devices for simulator ${simulator.id} at ${simulator.url}`);
     
     try {
-      // Just check if the simulator is reachable
+      // Get devices from simulator
+      let devicesList = [];
       try {
-        await axios.get(`${simulator.url}/configuration`, { timeout: 5000 });
+        const response = await axios.get(`${simulator.url}/devices`, { timeout: 5000 });
+        const devicesData = response.data || {};
         
+        // Transform from object with keys to array with id property
+        devicesList = Object.keys(devicesData).map(deviceId => ({
+          id: deviceId,
+          on: devicesData[deviceId].on || false,
+          rebooting: devicesData[deviceId].rebooting || false,
+          action: devicesData[deviceId].action || null,
+          broker: devicesData[deviceId].broker || null
+        }));
+        
+        console.log(`Parsed ${devicesList.length} devices from simulator:`, 
+                   devicesList.map(d => d.id).join(', '));
+                   
         // Update simulator to online if reachable
         await Simulator.findOneAndUpdate(
           { id: simulator.id },
-          { 
+          {
             lastSeen: Date.now(),
             status: 'online'
           }
         );
-        
-        console.log(`Simulator ${simulator.id} is online`);
       } catch (error) {
-        console.error(`Simulator ${simulator.id} appears to be offline:`, error.message);
+        console.error(`Error fetching devices from simulator ${simulator.id}:`, error.message);
         
         // Update simulator to offline
         await Simulator.findOneAndUpdate(
           { id: simulator.id },
           { status: 'offline' }
         );
+        return;
       }
+      
+      // Fetch devices from MongoDB for this simulator
+      const dbDevices = await Device.find({ simulatorId: simulator.id });
+      console.log(`Database has ${dbDevices.length} devices for simulator ${simulator.id}`);
+      
+      // Create sets of device IDs for comparison
+      const simulatorDeviceIds = new Set(devicesList.map(d => d.id));
+      const dbDeviceIds = new Set(dbDevices.map(d => d.id));
+      
+      console.log('Simulator devices:', Array.from(simulatorDeviceIds));
+      console.log('Database devices:', Array.from(dbDeviceIds));
+      
+      // Find devices to add to MongoDB (exist in simulator but not in DB)
+      for (const device of devicesList) {
+        if (!dbDeviceIds.has(device.id)) {
+          console.log(`Adding device ${device.id} to database`);
+          
+          // Add to MongoDB
+          await Device.create({
+            id: device.id,
+            simulatorId: simulator.id,
+            action: device.action,
+            broker: device.broker,
+            on: device.on,
+            rebooting: device.rebooting,
+            lastUpdated: Date.now()
+          });
+          
+          console.log(`Added device ${device.id} to database`);
+        } else {
+          // Update existing device
+          await Device.findOneAndUpdate(
+            { id: device.id },
+            {
+              on: device.on,
+              rebooting: device.rebooting,
+              action: device.action,
+              broker: device.broker,
+              lastUpdated: Date.now()
+            }
+          );
+        }
+      }
+      
+      // Find devices to remove from MongoDB (exist in DB but not in simulator)
+      for (const device of dbDevices) {
+        if (!simulatorDeviceIds.has(device.id)) {
+          console.log(`Removing device ${device.id} from database`);
+          
+          const deleteResult = await Device.deleteOne({ id: device.id });
+          console.log(`Delete result for ${device.id}:`, deleteResult);
+        }
+      }
+      
+      console.log(`Successfully synchronized devices for simulator ${simulator.id}`);
     } catch (error) {
-      console.error(`Error checking simulator ${simulator.id}:`, error);
+      console.error(`Error synchronizing devices for simulator ${simulator.id}:`, error);
     }
   }
   
