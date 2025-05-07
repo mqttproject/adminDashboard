@@ -8,7 +8,7 @@ const axios = require('axios');
 const mongoose = require('mongoose')
 
 
-// Import routes
+// Import routes and services
 const authRoutes = require('./routes/auth_route');
 const apiRoutes = require('./routes/api');
 const dashboardRoutes = require('./routes/dashboard');
@@ -22,100 +22,7 @@ const Room = require('./models/room');
 const Device = require('./models/device');
 const Simulator = require('./models/simulator');
 
-// Connection to database
-require('dotenv').config();
-connectDB();
-
-// Add the cleanup function and call it
-async function cleanupSimulators() {
-  console.log("Cleaning up duplicate simulator entries...");
-  
-  // Find simulators with null ids
-  const nullIdSimulators = await Simulator.find({ id: null });
-  
-  if (nullIdSimulators.length > 0) {
-    console.log(`Found ${nullIdSimulators.length} simulators with null IDs`);
-    
-    // Delete these invalid entries
-    const deleteResult = await Simulator.deleteMany({ id: null });
-    console.log(`Deleted ${deleteResult.deletedCount} invalid simulator entries`);
-  }
-  
-  // Find simulators with duplicate URLs
-  const allSimulators = await Simulator.find({});
-  const urlMap = {};
-  const duplicates = [];
-  
-  allSimulators.forEach(sim => {
-    if (sim.url) {
-      if (urlMap[sim.url]) {
-        duplicates.push(sim._id);
-      } else {
-        urlMap[sim.url] = sim._id;
-      }
-    }
-  });
-  
-  if (duplicates.length > 0) {
-    console.log(`Found ${duplicates.length} duplicate simulator entries`);
-    
-    // Delete the duplicates
-    const deleteResult = await Simulator.deleteMany({ _id: { $in: duplicates } });
-    console.log(`Deleted ${deleteResult.deletedCount} duplicate simulator entries`);
-  }
-
-  const urlGroups = {};
-  allSimulators.forEach(sim => {
-    if (sim.url) {
-      if (!urlGroups[sim.url]) {
-        urlGroups[sim.url] = [];
-      }
-      urlGroups[sim.url].push(sim);
-    }
-  });
-
-  // For each URL that has multiple simulators
-  for (const url in urlGroups) {
-    if (urlGroups[url].length > 1) {
-      console.log(`URL ${url} has ${urlGroups[url].length} simulator entries`);
-      
-      // Keep the first one, get its ID
-      const keepSimulator = urlGroups[url][0];
-      console.log(`Keeping simulator ${keepSimulator.id}`);
-      
-      // Get IDs of simulators to remove
-      const removeIds = urlGroups[url].slice(1).map(s => s._id);
-      
-      // Update devices to use the kept simulator ID
-      await Device.updateMany(
-        { simulatorId: { $in: urlGroups[url].slice(1).map(s => s.id) } },
-        { simulatorId: keepSimulator.id }
-      );
-      
-      // Delete duplicate simulators
-      const deleteResult = await Simulator.deleteMany({ _id: { $in: removeIds } });
-      console.log(`Deleted ${deleteResult.deletedCount} duplicate simulators`);
-    }
-  }
-  
-  console.log("Simulator cleanup complete");
-}
-
-// Call the cleanup function before starting the services
-(async () => {
-  try {
-    await cleanupSimulators();
-    console.log("Database cleanup completed successfully");
-    
-    // Now start your services
-    pollingService.start();
-    syncService.start();
-  } catch (error) {
-    console.error("Error during startup:", error);
-  }
-})();
-
-// Initialize app
+//Initialize application
 const app = express();
 
 // Middleware
@@ -124,35 +31,6 @@ app.use(cors()); // CORS for dashboard requests
 app.use(express.json()); // Parsing JSON bodies
 app.use(morgan('combined')); // Logging
 app.use(bodyParser.json());  
-
-// Initialization of an empty rooms collection in case none exist
-async function initRooms() {
-    const Room = require('./models/room');
-    const count = await Room.countDocuments();
-    
-    if (count === 0) {
-      await Room.insertMany([
-        {
-          id: 'room-1',
-          title: 'Simulator group 1',
-          simulatorIds: []
-        },
-        {
-          id: 'room-2',
-          title: 'Simulator group 2',
-          simulatorIds: []
-        },
-        {
-          id: 'unassigned',
-          title: 'Unassigned',
-          simulatorIds: []
-        }
-      ]);
-      console.log('Initialized default rooms');
-    }
-  }
-  
-initRooms().catch(err => console.error('Error initializing rooms:', err));
 
 // Dashboard API Routes
 const dashboardRouter = express.Router();
@@ -292,16 +170,144 @@ dashboardRouter.put('/instances/update-title', async (req, res) => {
   }
 });
 
+//Register the dashboard router
+app.use('/api', dashboardRouter);
 // Routes - Modular approach
 app.use('/auth_route', authRoutes);
 app.use('/deviceapi', apiRoutes); //for now it's deviceapi, later it will be api
-app.use('/api', dashboardRoutes.router);
 
-pollingService.start();
-syncService.start();
+// A DB cleanup function to call on server startup to get rid of any null ID simulators
+async function cleanupSimulators() {
+  console.log("Cleaning up duplicate simulator entries...");
+  
+  // Find simulators with null ids
+  const nullIdSimulators = await Simulator.find({ id: null });
+  
+  if (nullIdSimulators.length > 0) {
+    console.log(`Found ${nullIdSimulators.length} simulators with null IDs`);
+    
+    // Delete these invalid entries
+    const deleteResult = await Simulator.deleteMany({ id: null });
+    console.log(`Deleted ${deleteResult.deletedCount} invalid simulator entries`);
+  }
+  
+  // Find simulators with duplicate URLs
+  const allSimulators = await Simulator.find({});
+  const urlMap = {};
+  const duplicates = [];
+  
+  allSimulators.forEach(sim => {
+    if (sim.url) {
+      if (urlMap[sim.url]) {
+        duplicates.push(sim._id);
+      } else {
+        urlMap[sim.url] = sim._id;
+      }
+    }
+  });
+  
+  if (duplicates.length > 0) {
+    console.log(`Found ${duplicates.length} duplicate simulator entries`);
+    
+    // Delete the duplicates
+    const deleteResult = await Simulator.deleteMany({ _id: { $in: duplicates } });
+    console.log(`Deleted ${deleteResult.deletedCount} duplicate simulator entries`);
+  }
 
-// Start server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+  const urlGroups = {};
+  allSimulators.forEach(sim => {
+    if (sim.url) {
+      if (!urlGroups[sim.url]) {
+        urlGroups[sim.url] = [];
+      }
+      urlGroups[sim.url].push(sim);
+    }
+  });
+
+  // For each URL that has multiple simulators
+  for (const url in urlGroups) {
+    if (urlGroups[url].length > 1) {
+      console.log(`URL ${url} has ${urlGroups[url].length} simulator entries`);
+      
+      // Keep the first one, get its ID
+      const keepSimulator = urlGroups[url][0];
+      console.log(`Keeping simulator ${keepSimulator.id}`);
+      
+      // Get IDs of simulators to remove
+      const removeIds = urlGroups[url].slice(1).map(s => s._id);
+      
+      // Update devices to use the kept simulator ID
+      await Device.updateMany(
+        { simulatorId: { $in: urlGroups[url].slice(1).map(s => s.id) } },
+        { simulatorId: keepSimulator.id }
+      );
+      
+      // Delete duplicate simulators
+      const deleteResult = await Simulator.deleteMany({ _id: { $in: removeIds } });
+      console.log(`Deleted ${deleteResult.deletedCount} duplicate simulators`);
+    }
+  }
+  console.log("Simulator cleanup complete");
+}
+
+// Initialization of an empty rooms collection in case none exist
+async function initRooms() {
+    const Room = require('./models/room');
+    const count = await Room.countDocuments();
+    
+    if (count === 0) {
+      await Room.insertMany([
+        {
+          id: 'room-1',
+          title: 'Simulator group 1',
+          simulatorIds: []
+        },
+        {
+          id: 'room-2',
+          title: 'Simulator group 2',
+          simulatorIds: []
+        },
+        {
+          id: 'unassigned',
+          title: 'Unassigned',
+          simulatorIds: []
+        }
+      ]);
+      console.log('Initialized default rooms');
+    }
+}
+
+async function startServer() {
+  try {
+    // Load environment variables
+    require('dotenv').config();
+    
+    // First connect to database
+    await connectDB();
+    console.log(`MongoDB Connected: ${mongoose.connection.host}`);
+    
+    // Then run cleanup and initialization
+    await cleanupSimulators();
+    console.log("Simulator cleanup complete");
+    
+    await initRooms().catch(err => console.error('Error initializing rooms:', err));
+    
+    // Start services ONLY after database operations are complete
+    pollingService.start();
+    syncService.start();
+    
+    // Finally, start the server
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+    
+    console.log("Database cleanup completed successfully");
+  } catch (error) {
+    console.error("Error during startup:", error);
+    process.exit(1);
+  }
+}
+
+// Start the server
+startServer();
