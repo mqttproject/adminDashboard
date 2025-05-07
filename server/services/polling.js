@@ -4,7 +4,7 @@ const Device = require('../models/device');
 const simulatorRegistry = require('./simulator_registry');
 
 class PollingService {
-  constructor(interval = 10000) {
+  constructor(interval = 20000) {
     this.interval = interval;
     this.timerId = null;
   }

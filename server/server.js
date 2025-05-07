@@ -13,6 +13,7 @@ const authRoutes = require('./routes/auth_route');
 const apiRoutes = require('./routes/api');
 const dashboardRoutes = require('./routes/dashboard');
 const pollingService = require('./services/polling');
+const syncService = require('./services/sync-service')
 const connectDB = require('./config/db');
 const simulatorRegistry = require('./services/simulator_registry');
 
@@ -24,6 +25,95 @@ const Simulator = require('./models/simulator');
 // Connection to database
 require('dotenv').config();
 connectDB();
+
+// Add the cleanup function and call it
+async function cleanupSimulators() {
+  console.log("Cleaning up duplicate simulator entries...");
+  
+  // Find simulators with null ids
+  const nullIdSimulators = await Simulator.find({ id: null });
+  
+  if (nullIdSimulators.length > 0) {
+    console.log(`Found ${nullIdSimulators.length} simulators with null IDs`);
+    
+    // Delete these invalid entries
+    const deleteResult = await Simulator.deleteMany({ id: null });
+    console.log(`Deleted ${deleteResult.deletedCount} invalid simulator entries`);
+  }
+  
+  // Find simulators with duplicate URLs
+  const allSimulators = await Simulator.find({});
+  const urlMap = {};
+  const duplicates = [];
+  
+  allSimulators.forEach(sim => {
+    if (sim.url) {
+      if (urlMap[sim.url]) {
+        duplicates.push(sim._id);
+      } else {
+        urlMap[sim.url] = sim._id;
+      }
+    }
+  });
+  
+  if (duplicates.length > 0) {
+    console.log(`Found ${duplicates.length} duplicate simulator entries`);
+    
+    // Delete the duplicates
+    const deleteResult = await Simulator.deleteMany({ _id: { $in: duplicates } });
+    console.log(`Deleted ${deleteResult.deletedCount} duplicate simulator entries`);
+  }
+
+  const urlGroups = {};
+  allSimulators.forEach(sim => {
+    if (sim.url) {
+      if (!urlGroups[sim.url]) {
+        urlGroups[sim.url] = [];
+      }
+      urlGroups[sim.url].push(sim);
+    }
+  });
+
+  // For each URL that has multiple simulators
+  for (const url in urlGroups) {
+    if (urlGroups[url].length > 1) {
+      console.log(`URL ${url} has ${urlGroups[url].length} simulator entries`);
+      
+      // Keep the first one, get its ID
+      const keepSimulator = urlGroups[url][0];
+      console.log(`Keeping simulator ${keepSimulator.id}`);
+      
+      // Get IDs of simulators to remove
+      const removeIds = urlGroups[url].slice(1).map(s => s._id);
+      
+      // Update devices to use the kept simulator ID
+      await Device.updateMany(
+        { simulatorId: { $in: urlGroups[url].slice(1).map(s => s.id) } },
+        { simulatorId: keepSimulator.id }
+      );
+      
+      // Delete duplicate simulators
+      const deleteResult = await Simulator.deleteMany({ _id: { $in: removeIds } });
+      console.log(`Deleted ${deleteResult.deletedCount} duplicate simulators`);
+    }
+  }
+  
+  console.log("Simulator cleanup complete");
+}
+
+// Call the cleanup function before starting the services
+(async () => {
+  try {
+    await cleanupSimulators();
+    console.log("Database cleanup completed successfully");
+    
+    // Now start your services
+    pollingService.start();
+    syncService.start();
+  } catch (error) {
+    console.error("Error during startup:", error);
+  }
+})();
 
 // Initialize app
 const app = express();
@@ -208,6 +298,7 @@ app.use('/deviceapi', apiRoutes); //for now it's deviceapi, later it will be api
 app.use('/api', dashboardRoutes.router);
 
 pollingService.start();
+syncService.start();
 
 // Start server
 const PORT = process.env.PORT || 3000;

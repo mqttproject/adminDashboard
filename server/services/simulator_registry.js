@@ -6,43 +6,68 @@ const Room = require('../models/room');
 const cache = {
   deviceStates: {}, // For device states caching
   simulatorUrls: {}, // For device ID to simulator URL mapping
-  clearCache: function() { // Clears the cache 
-    this.deviceStates = {};
-    this.simulatorUrls = {};
-  }
 };
 
 class SimulatorRegistry {
 
+  clearCache() {
+    console.log('Clearing all caches...');
+    cache.deviceStates = {};
+    cache.simulatorUrls = {};
+    console.log('Caches cleared');
+  }
+
   // Registering a new device with its corresponding simulator
-  async registerSimulator(deviceId, url, simulatorId) {
+  async registerSimulator(deviceId, url, simulatorId = null) {
     try {
-      // Create/update a simulator
-      await Simulator.findOneAndUpdate(
+      // Format URL properly
+      let formattedUrl = url;
+      if (!formattedUrl.startsWith('http://') && !formattedUrl.startsWith('https://')) {
+        formattedUrl = `http://${formattedUrl}`;
+      }
+      
+      // If no simulatorId provided, extract from URL in a consistent way
+      if (!simulatorId) {
+        // Just use the host part (without port) for consistency
+        const urlObj = new URL(formattedUrl);
+        simulatorId = urlObj.hostname;
+      }
+      
+      console.log(`Registering device ${deviceId} with simulator ${simulatorId} at ${formattedUrl}`);
+      
+      // Create/update simulator
+      const updateResult = await Simulator.findOneAndUpdate(
         { id: simulatorId },
         { 
-          url,
-          lastSeen: Date.now()
+          url: formattedUrl,
+          lastSeen: Date.now(),
+          status: 'online'
         },
-        { upsert: true }
+        { 
+          upsert: true,
+          new: true
+        }
       );
       
-      // Create/update device(s)
+      // Create/update device
       await Device.findOneAndUpdate(
         { id: deviceId },
         { 
           simulatorId,
           lastUpdated: Date.now()
         },
-        { upsert: true }
+        { 
+          upsert: true,
+          new: true 
+        }
       );
       
-      // Clear relevant cache entries
+      // Clear cache entries
       delete cache.simulatorUrls[deviceId];
       
       return true;
     } catch (error) {
-      console.error('Error registering simulator:', error);
+      console.error(`Error registering simulator for device ${deviceId}:`, error);
       return false;
     }
   }
@@ -65,6 +90,7 @@ class SimulatorRegistry {
       cache.simulatorUrls[deviceId] = simulator.url;
       
       return simulator.url;
+      
     } catch (error) {
       console.error('Error getting simulator URL:', error);
       return null;
@@ -252,15 +278,27 @@ class SimulatorRegistry {
   // Remove a device
   async unregisterDevice(deviceId) {
     try {
-      await Device.deleteOne({ id: deviceId });
+      console.log(`Unregistering device ${deviceId} from database`);
+      
+      // Perform database deletion
+      const deleteResult = await Device.deleteOne({ id: deviceId });
+      
+      console.log(`Delete result for ${deviceId}:`, deleteResult);
+      
+      // Verify deletion was successful
+      if (deleteResult.deletedCount === 0) {
+        console.warn(`No device found with ID ${deviceId} to delete`);
+      } else {
+        console.log(`Successfully deleted device ${deviceId} from database`);
+      }
       
       // Clear from cache
       delete cache.deviceStates[deviceId];
       delete cache.simulatorUrls[deviceId];
       
-      return true;
+      return deleteResult.deletedCount > 0;
     } catch (error) {
-      console.error('Error unregistering device:', error);
+      console.error(`Error unregistering device ${deviceId}:`, error);
       return false;
     }
   }
