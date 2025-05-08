@@ -6,21 +6,96 @@ const Room = require('../models/room');
 const simulatorRegistry = require('../services/simulator_registry');
 
 // Heartbeat endpoint
+
 router.get('/heartbeat', async (req, res) => {
   try {
     // Get all simulators with their devices
-    const simulators = await simulatorRegistry.getAllSimulatorsWithDevices();
-    
-    // Get all rooms
+    const simulators = await Simulator.find({});
     const rooms = await Room.find({});
     
-    res.json({
-      instances: simulators,
-      rooms: rooms
+    // Check if we need to assign unassigned simulators
+    const unassignedRoom = rooms.find(room => room.id === 'unassigned');
+    if (unassignedRoom) {
+      const allSimulatorIds = simulators.map(sim => sim.id);
+      const assignedSimulatorIds = rooms.reduce((acc, room) => 
+        room.id !== 'unassigned' ? [...acc, ...(room.simulatorIds || [])] : acc, []);
+      
+      const unassignedSimulatorIds = allSimulatorIds.filter(id => 
+        !assignedSimulatorIds.includes(id));
+      
+      // Update unassigned room if needed
+      if (unassignedSimulatorIds.length > 0 && 
+          JSON.stringify(unassignedRoom.simulatorIds.sort()) !== 
+          JSON.stringify(unassignedSimulatorIds.sort())) {
+        
+        console.log(`Updating unassigned room with ${unassignedSimulatorIds.length} simulators`);
+        unassignedRoom.simulatorIds = unassignedSimulatorIds;
+        await unassignedRoom.save();
+      }
+    }
+    
+    // Helper function to get device type from action
+    function getDeviceType(action) {
+      if (!action) return 'unknown_device';
+      
+      // Map of action names to device types
+      const deviceTypeMap = {
+        'doorLockAction': 'door_lock',
+        'roomTemperatureAction': 'temperature_sensor',
+        'coffeeAction': 'coffee_machine',
+        // Add more mappings as needed for future device types
+      };
+      
+      return deviceTypeMap[action] || 'unknown_device';
+    }
+    
+    // Helper function to extract IP from broker address
+    function extractIpFromBroker(broker) {
+      if (!broker) return 'Unknown';
+      
+      try {
+        // Handle tcp:// prefix in MQTT broker addresses
+        return broker.replace(/^tcp:\/\//, '').split(':')[0];
+      } catch (error) {
+        return 'Unknown';
+      }
+    }
+    
+    // Transform simulators for response
+    const instancesData = await Promise.all(simulators.map(async (simulator) => {
+      const devices = await Device.find({ simulatorId: simulator.id });
+      
+      return {
+        id: simulator.id,
+        title: simulator.title || 'Simulator',
+        status: simulator.status || 'offline',
+        url: simulator.url,
+        devices: devices.map(d => ({
+          id: d.id,
+          name: d.id, // The device ID is used as the display name
+          action: d.action, // Include the action type
+          type: getDeviceType(d.action),
+          room: d.room || '---',
+          ip: extractIpFromBroker(d.broker),
+          broker: d.broker || 'Unknown'
+        }))
+      };
+    }));
+    
+    // Format rooms for the frontend
+    const roomsData = rooms.map(room => ({
+      id: room.id,
+      title: room.title || 'Unnamed Room',
+      instances: room.simulatorIds || []
+    }));
+    
+    res.json({ 
+      instances: instancesData,
+      rooms: roomsData 
     });
   } catch (error) {
-    console.error('Error in heartbeat endpoint:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error fetching heartbeat data:', error);
+    res.status(500).json({ error: 'Failed to fetch data' });
   }
 });
 

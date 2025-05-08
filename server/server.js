@@ -170,11 +170,10 @@ dashboardRouter.put('/instances/update-title', async (req, res) => {
   }
 });
 
-//Register the dashboard router
-app.use('/api', dashboardRouter);
-// Routes - Modular approach
-app.use('/auth_route', authRoutes);
-app.use('/deviceapi', apiRoutes); //for now it's deviceapi, later it will be api
+//Routes
+app.use('/auth', authRoutes);
+app.use('/api', apiRoutes);
+app.use('/api/dashboard', dashboardRoutes.router);
 
 // A DB cleanup function to call on server startup to get rid of any null ID simulators
 async function cleanupSimulators() {
@@ -308,6 +307,90 @@ async function startServer() {
     process.exit(1);
   }
 }
+async function checkSimulatorUrls() {
+  const simulators = await Simulator.find({});
+  console.log('Checking simulator URLs:');
+  
+  for (const simulator of simulators) {
+    console.log(`Simulator ${simulator.id}: URL = ${simulator.url}`);
+    
+    try {
+      const response = await axios.get(`${simulator.url}/configuration`, { timeout: 5000 });
+      console.log(`  Status: Reachable - Response status: ${response.status}`);
+    } catch (error) {
+      console.error(`  Status: Unreachable - Error: ${error.message}`);
+    }
+  }
+}
 
+/*async function ensureSimulatorUuidConsistency() {
+  try {
+    const simulators = await Simulator.find({});
+    
+    for (const simulator of simulators) {
+      try {
+        // Try to get the configuration to extract UUID
+        const response = await axios.get(`${simulator.url}/configuration`);
+        
+        // Process only if we get a valid response
+        if (response.data && typeof response.data === 'object') {
+          const ipAddress = Object.keys(response.data)[0];
+          
+          // Check if the response has the expected structure
+          if (response.data[ipAddress]?.general?.Id) {
+            const uuid = response.data[ipAddress].general.Id;
+            
+            // If the current ID is not the UUID, update it
+            if (simulator.id !== uuid) {
+              console.log(`Updating simulator ${simulator.id} to use UUID ${uuid}`);
+              
+              // Create/update a simulator with UUID
+              await Simulator.findOneAndUpdate(
+                { id: uuid },
+                { 
+                  url: simulator.url,
+                  title: simulator.title || 'Simulator',
+                  status: 'online',
+                  lastSeen: Date.now()
+                },
+                { upsert: true }
+              );
+              
+              // Update device references
+              await Device.updateMany(
+                { simulatorId: simulator.id },
+                { simulatorId: uuid }
+              );
+              
+              // Update room references
+              await Room.updateMany(
+                { simulatorIds: simulator.id },
+                { $pull: { simulatorIds: simulator.id } }
+              );
+              
+              await Room.updateMany(
+                { simulatorIds: { $ne: uuid } },
+                { $addToSet: { simulatorIds: uuid } }
+              );
+              
+              // Delete the old record
+              if (simulator.id !== uuid) {
+                await Simulator.deleteOne({ id: simulator.id });
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.warn(`Could not update simulator ${simulator.id}: ${error.message}`);
+      }
+    }
+  } catch (error) {
+    console.error('Error in UUID consistency check:', error);
+  }
+}
+
+setInterval(ensureSimulatorUuidConsistency, 1*60*1000);*/
+
+checkSimulatorUrls().catch(err => console.error('URL check error:', err));
 // Start the server
 startServer();

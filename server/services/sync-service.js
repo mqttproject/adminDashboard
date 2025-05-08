@@ -4,7 +4,7 @@ const axios = require('axios');
 const simulatorRegistry = require('./simulator_registry')
 
 class SyncService {
-  constructor(interval = 10000) { // Default: sync every minute
+  constructor(interval = 7000) { // Default: sync every minute
     this.interval = interval;
     this.timerId = null;
   }
@@ -48,7 +48,6 @@ class SyncService {
   }
   
   async syncSimulatorDevices(simulator) {
-    
     if (!simulator || !simulator.id) {
       console.error('Invalid simulator object:', simulator);
       return;
@@ -65,19 +64,38 @@ class SyncService {
       // Get devices from simulator
       let devicesList = [];
       try {
+        console.log(`Fetching devices from ${simulator.url}/devices`);
         const response = await axios.get(`${simulator.url}/devices`, { timeout: 5000 });
-        const devicesData = response.data || {};
+        const responseData = response.data || {};
         
-        // Transform from object with keys to array with id property
-        devicesList = Object.keys(devicesData).map(deviceId => ({
-          id: deviceId,
-          on: devicesData[deviceId].on || false,
-          rebooting: devicesData[deviceId].rebooting || false,
-          action: devicesData[deviceId].action || null,
-          broker: devicesData[deviceId].broker || null
-        }));
+        console.log(`Raw response from simulator:`, JSON.stringify(responseData).substring(0, 200) + '...');
         
-        console.log(`Parsed ${devicesList.length} devices from simulator:`, 
+        // Check if response has the expected nested 'devices' object
+        if (responseData.devices && typeof responseData.devices === 'object') {
+          const devicesObj = responseData.devices;
+          console.log(`Found ${Object.keys(devicesObj).length} devices in nested 'devices' object`);
+          
+          // Transform each device in the nested devices object to our format
+          devicesList = Object.entries(devicesObj).map(([key, device]) => ({
+            id: device.id || key,
+            on: device.on || false,
+            rebooting: device.rebooting || false,
+            action: device.action || null,
+            broker: device.broker || null
+          }));
+        } else {
+          console.warn(`Unexpected response format from /devices endpoint - no 'devices' object found`);
+          // Try to handle as direct map of device IDs to devices
+          devicesList = Object.entries(responseData).map(([key, device]) => ({
+            id: device.id || key,
+            on: device.on || false,
+            rebooting: device.rebooting || false,
+            action: device.action || null,
+            broker: device.broker || null
+          }));
+        }
+        
+        console.log(`Transformed ${devicesList.length} devices from simulator ${simulator.id}:`, 
                    devicesList.map(d => d.id).join(', '));
                    
         // Update simulator to online if reachable
@@ -91,6 +109,11 @@ class SyncService {
       } catch (error) {
         console.error(`Error fetching devices from simulator ${simulator.id}:`, error.message);
         
+        console.warn(`🚨 GRACEFUL DEGRADATION: Unable to fetch devices from simulator ${simulator.id}.`);
+        console.warn(`🔄 System will use existing database entries as a temporary fallback.`);
+        console.warn(`⚠️ WARNING: This creates a circular reference where the database becomes its own source of truth.`);
+        console.warn(`📝 NOTE: To fix this, ensure the simulator at ${simulator.url} has a working /devices endpoint, as that is used as *THE* source of truth.`);
+
         // Update simulator to offline
         await Simulator.findOneAndUpdate(
           { id: simulator.id },
@@ -107,8 +130,8 @@ class SyncService {
       const simulatorDeviceIds = new Set(devicesList.map(d => d.id));
       const dbDeviceIds = new Set(dbDevices.map(d => d.id));
       
-      console.log('Simulator devices:', Array.from(simulatorDeviceIds));
-      console.log('Database devices:', Array.from(dbDeviceIds));
+      console.log('Simulator device IDs:', Array.from(simulatorDeviceIds));
+      console.log('Database device IDs:', Array.from(dbDeviceIds));
       
       // Find devices to add to MongoDB (exist in simulator but not in DB)
       for (const device of devicesList) {
@@ -129,6 +152,7 @@ class SyncService {
           console.log(`Added device ${device.id} to database`);
         } else {
           // Update existing device
+          console.log(`Updating device ${device.id} in database`);
           await Device.findOneAndUpdate(
             { id: device.id },
             {
@@ -143,13 +167,34 @@ class SyncService {
       }
       
       // Find devices to remove from MongoDB (exist in DB but not in simulator)
+      let devicesToRemove = [];
       for (const device of dbDevices) {
-        if (!simulatorDeviceIds.has(device.id)) {
-          console.log(`Removing device ${device.id} from database`);
-          
-          const deleteResult = await Device.deleteOne({ id: device.id });
-          console.log(`Delete result for ${device.id}:`, deleteResult);
+        // Make sure we're not removing the 'devices' pseudo-device
+        if (!simulatorDeviceIds.has(device.id) && device.id !== 'devices') {
+          devicesToRemove.push(device.id);
         }
+      }
+      
+      if (devicesToRemove.length > 0) {
+        console.log(`Removing ${devicesToRemove.length} devices from database that don't exist in simulator ${simulator.id}`);
+        console.log(`Devices to remove:`, devicesToRemove);
+        
+        for (const deviceId of devicesToRemove) {
+          try {
+            const deleteResult = await Device.deleteOne({ id: deviceId });
+            console.log(`Delete result for ${deviceId}:`, deleteResult);
+          } catch (deleteError) {
+            console.error(`Error deleting device ${deviceId}:`, deleteError);
+          }
+        }
+      } else {
+        console.log(`No devices to remove for simulator ${simulator.id}`);
+      }
+      
+      // Clean up any 'devices' pseudo-devices that might have been created
+      const devicesCleanup = await Device.deleteOne({ id: 'devices' });
+      if (devicesCleanup.deletedCount > 0) {
+        console.log(`Cleaned up incorrect 'devices' pseudo-device entry`);
       }
       
       console.log(`Successfully synchronized devices for simulator ${simulator.id}`);

@@ -4,7 +4,7 @@ const Device = require('../models/device');
 const simulatorRegistry = require('./simulator_registry');
 
 class PollingService {
-  constructor(interval = 20000) {
+  constructor(interval = 5000) {
     this.interval = interval;
     this.timerId = null;
   }
@@ -29,6 +29,8 @@ class PollingService {
       const simulators = await Simulator.find({});
       
       for (const simulator of simulators) {
+
+        console.log(`Polling simulator ${simulator.id} at URL: ${simulator.url}`);
         // Mark simulator as seen
         await Simulator.findOneAndUpdate(
           { id: simulator.id },
@@ -36,15 +38,21 @@ class PollingService {
         );
         
         try {
+          console.log(`Attempting to reach simulator at ${simulator.url}/configuration`);
           // Check if the simulator is reachable
           await axios.get(`${simulator.url}/configuration`, { timeout: 5000 });
           
+          console.log(`Successfully reached simulator ${simulator.id} - marking as online`);
           // If reachable => update status to online
           await Simulator.findOneAndUpdate(
             { id: simulator.id },
             { status: 'online', lastSeen: Date.now() }
           );
           
+          // Check if status was updated
+          const updatedSimulator = await Simulator.findOne({ id: simulator.id });
+          console.log(`Simulator ${simulator.id} status after update: ${updatedSimulator.status}`);
+
           // Poll each device for this particular simulator
           const devices = await Device.find({ simulatorId: simulator.id });
           
