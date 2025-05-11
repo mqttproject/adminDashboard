@@ -6,6 +6,7 @@ const helmet = require('helmet');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const mongoose = require('mongoose')
+const { extractSimulatorUUID } = require('./utils/configHelpers');
 
 
 // Import routes and services
@@ -16,6 +17,7 @@ const pollingService = require('./services/polling');
 const syncService = require('./services/sync-service')
 const connectDB = require('./config/db');
 const simulatorRegistry = require('./services/simulator_registry');
+const simulatorRoutes = require('./routes/simulator');
 
 // Import MongoDB models 
 const Room = require('./models/room');
@@ -174,6 +176,158 @@ dashboardRouter.put('/instances/update-title', async (req, res) => {
 app.use('/auth', authRoutes);
 app.use('/api', apiRoutes);
 app.use('/api/dashboard', dashboardRoutes.router);
+app.use('/api/simulator', simulatorRoutes); 
+
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    clientIP: req.ip
+  });
+});
+
+// Enhanced cleanup function for duplicate simulators
+async function cleanupDuplicateSimulators() {
+  console.log("Cleaning up duplicate simulators...");
+  
+  try {
+    // Find all simulators
+    const simulators = await Simulator.find({});
+    
+    // Group simulators by URL
+    const urlGroups = {};
+    simulators.forEach(sim => {
+      if (sim.url) {
+        if (!urlGroups[sim.url]) {
+          urlGroups[sim.url] = [];
+        }
+        urlGroups[sim.url].push(sim);
+      }
+    });
+    
+    // For each URL that has multiple simulators
+    for (const url in urlGroups) {
+      if (urlGroups[url].length > 1) {
+        console.log(`URL ${url} has ${urlGroups[url].length} simulator entries`);
+        
+        // Prefer UUID-based IDs over IP-based IDs
+        const ipPattern = /^\d+\.\d+\.\d+\.\d+$/;
+        let keepSimulator = null;
+        const removeSimulators = [];
+        
+        urlGroups[url].forEach(sim => {
+          if (!ipPattern.test(sim.id)) {
+            // This is a UUID-based ID, prefer to keep this one
+            keepSimulator = sim;
+          } else {
+            // This is an IP-based ID, mark for removal
+            removeSimulators.push(sim);
+          }
+        });
+        
+        // If no UUID-based simulator found, keep the first one
+        if (!keepSimulator) {
+          keepSimulator = urlGroups[url][0];
+          removeSimulators.splice(0, 1);
+        }
+        
+        console.log(`Keeping simulator ${keepSimulator.id}`);
+        
+        // Migrate devices from simulators to be removed
+        for (const removeSimulator of removeSimulators) {
+          console.log(`Migrating devices from ${removeSimulator.id} to ${keepSimulator.id}`);
+          
+          // Update devices to use the kept simulator ID
+          const updateResult = await Device.updateMany(
+            { simulatorId: removeSimulator.id },
+            { simulatorId: keepSimulator.id }
+          );
+          console.log(`Migrated ${updateResult.modifiedCount} devices`);
+          
+          // Update room references
+          await Room.updateMany(
+            { simulatorIds: removeSimulator.id },
+            { $pull: { simulatorIds: removeSimulator.id } }
+          );
+          
+          await Room.updateMany(
+            { },
+            { $addToSet: { simulatorIds: keepSimulator.id } }
+          );
+          
+          // Delete the duplicate simulator
+          await Simulator.deleteOne({ _id: removeSimulator._id });
+          console.log(`Deleted duplicate simulator ${removeSimulator.id}`);
+        }
+      }
+    }
+    
+    // Clean up any IP-based simulators that don't have a URL
+    const ipPattern = /^\d+\.\d+\.\d+\.\d+$/;
+    const ipBasedSimulators = await Simulator.find({
+      id: { $regex: ipPattern }
+    });
+    
+    console.log(`Found ${ipBasedSimulators.length} IP-based simulators to check`);
+    
+    for (const ipSimulator of ipBasedSimulators) {
+      // Check if there's a UUID-based simulator with the same URL
+      const uuidSimulator = await Simulator.findOne({
+        url: ipSimulator.url,
+        id: { $not: { $regex: ipPattern } }
+      });
+      
+      if (uuidSimulator) {
+        console.log(`Found UUID simulator ${uuidSimulator.id} for IP simulator ${ipSimulator.id}`);
+        
+        // Migrate devices
+        await Device.updateMany(
+          { simulatorId: ipSimulator.id },
+          { simulatorId: uuidSimulator.id }
+        );
+        
+        // Update rooms
+        await Room.updateMany(
+          { simulatorIds: ipSimulator.id },
+          { 
+            $pull: { simulatorIds: ipSimulator.id },
+            $addToSet: { simulatorIds: uuidSimulator.id }
+          }
+        );
+        
+        // Delete the IP-based simulator
+        await Simulator.deleteOne({ _id: ipSimulator._id });
+        console.log(`Deleted IP-based simulator ${ipSimulator.id}`);
+      }
+    }
+    
+    console.log("Simulator cleanup complete");
+  } catch (error) {
+    console.error('Error cleaning up simulators:', error);
+  }
+}
+
+// Function to clean up orphaned devices
+async function cleanupOrphanedDevices() {
+  console.log("Cleaning up orphaned devices...");
+  
+  try {
+    // Get all valid simulator IDs
+    const simulators = await Simulator.find({});
+    const validSimulatorIds = simulators.map(s => s.id);
+    
+    // Find and delete devices with invalid simulator IDs
+    const result = await Device.deleteMany({
+      simulatorId: { $nin: validSimulatorIds }
+    });
+    
+    if (result.deletedCount > 0) {
+      console.log(`Deleted ${result.deletedCount} orphaned devices`);
+    }
+  } catch (error) {
+    console.error('Error cleaning up orphaned devices:', error);
+  }
+}
 
 // A DB cleanup function to call on server startup to get rid of any null ID simulators
 async function cleanupSimulators() {
@@ -285,15 +439,17 @@ async function startServer() {
     await connectDB();
     console.log(`MongoDB Connected: ${mongoose.connection.host}`);
     
-    // Then run cleanup and initialization
-    await cleanupSimulators();
-    console.log("Simulator cleanup complete");
+    // Run all cleanup operations
+    await cleanupDuplicateSimulators(); // Enhanced cleanup for duplicates
+    await cleanupOrphanedDevices();     // Clean up orphaned devices
+    await cleanupSimulators();          // Original cleanup function
     
     await initRooms().catch(err => console.error('Error initializing rooms:', err));
     
     // Start services ONLY after database operations are complete
     pollingService.start();
     syncService.start();
+    await ensureSimulatorUuidConsistency();
     
     // Finally, start the server
     const PORT = process.env.PORT || 3000;
@@ -307,6 +463,7 @@ async function startServer() {
     process.exit(1);
   }
 }
+
 async function checkSimulatorUrls() {
   const simulators = await Simulator.find({});
   console.log('Checking simulator URLs:');
@@ -323,74 +480,88 @@ async function checkSimulatorUrls() {
   }
 }
 
-/*async function ensureSimulatorUuidConsistency() {
+async function ensureSimulatorUuidConsistency() {
   try {
+    console.log("Running UUID consistency check for all simulators...");
     const simulators = await Simulator.find({});
+    
+    let updatedCount = 0;
     
     for (const simulator of simulators) {
       try {
+        if (!simulator.url) {
+          console.warn(`Simulator ${simulator.id} has no URL, skipping UUID check`);
+          continue;
+        }
+        
         // Try to get the configuration to extract UUID
-        const response = await axios.get(`${simulator.url}/configuration`);
+        console.log(`Fetching configuration from ${simulator.url}/configuration`);
+        const response = await axios.get(`${simulator.url}/configuration`, { timeout: 5000 });
         
         // Process only if we get a valid response
         if (response.data && typeof response.data === 'object') {
-          const ipAddress = Object.keys(response.data)[0];
+          // Extract UUID from the configuration
+          const uuid = extractSimulatorUUID(response.data);
           
-          // Check if the response has the expected structure
-          if (response.data[ipAddress]?.general?.Id) {
-            const uuid = response.data[ipAddress].general.Id;
+          if (!uuid) {
+            console.warn(`Could not extract UUID from simulator ${simulator.id} at ${simulator.url}`);
+            continue;
+          }
+          
+          // If the current ID is not the UUID, update it
+          if (simulator.id !== uuid) {
+            console.log(`Updating simulator ${simulator.id} to use UUID ${uuid}`);
+            updatedCount++;
             
-            // If the current ID is not the UUID, update it
+            // Create/update a simulator with UUID
+            await Simulator.findOneAndUpdate(
+              { id: uuid },
+              { 
+                url: simulator.url,
+                title: simulator.title || 'Simulator',
+                status: 'online',
+                lastSeen: Date.now()
+              },
+              { upsert: true }
+            );
+            
+            // Update device references
+            await Device.updateMany(
+              { simulatorId: simulator.id },
+              { simulatorId: uuid }
+            );
+            
+            // Update room references
+            await Room.updateMany(
+              { simulatorIds: simulator.id },
+              { $pull: { simulatorIds: simulator.id } }
+            );
+            
+            await Room.updateMany(
+              { },
+              { $addToSet: { simulatorIds: uuid } }
+            );
+            
+            // Delete the old record
             if (simulator.id !== uuid) {
-              console.log(`Updating simulator ${simulator.id} to use UUID ${uuid}`);
-              
-              // Create/update a simulator with UUID
-              await Simulator.findOneAndUpdate(
-                { id: uuid },
-                { 
-                  url: simulator.url,
-                  title: simulator.title || 'Simulator',
-                  status: 'online',
-                  lastSeen: Date.now()
-                },
-                { upsert: true }
-              );
-              
-              // Update device references
-              await Device.updateMany(
-                { simulatorId: simulator.id },
-                { simulatorId: uuid }
-              );
-              
-              // Update room references
-              await Room.updateMany(
-                { simulatorIds: simulator.id },
-                { $pull: { simulatorIds: simulator.id } }
-              );
-              
-              await Room.updateMany(
-                { simulatorIds: { $ne: uuid } },
-                { $addToSet: { simulatorIds: uuid } }
-              );
-              
-              // Delete the old record
-              if (simulator.id !== uuid) {
-                await Simulator.deleteOne({ id: simulator.id });
-              }
+              await Simulator.deleteOne({ id: simulator.id });
             }
+          } else {
+            console.log(`Simulator ${simulator.id} already using correct UUID`);
           }
         }
       } catch (error) {
         console.warn(`Could not update simulator ${simulator.id}: ${error.message}`);
       }
     }
+    
+    console.log(`UUID consistency check completed: ${updatedCount} simulators updated`);
   } catch (error) {
     console.error('Error in UUID consistency check:', error);
   }
 }
 
-setInterval(ensureSimulatorUuidConsistency, 1*60*1000);*/
-
 checkSimulatorUrls().catch(err => console.error('URL check error:', err));
+setInterval(ensureSimulatorUuidConsistency, 30 * 60 * 1000);
 // Start the server
 startServer();

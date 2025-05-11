@@ -4,6 +4,8 @@ const axios = require('axios');
 const { authenticate } = require('../middleware/auth_mw');
 const simulatorRegistry = require('../services/simulator_registry');
 const Simulator = require('../models/simulator');
+const { extractSimulatorUUID } = require('../utils/configHelpers');
+const { authenticateSimulator } = require('../middleware/auth_simulator');
 
 const router = express.Router();
 
@@ -145,29 +147,25 @@ router.post('/device/:id', async (req, res) => {
   }
 });
 
-
 // Get all devices
-router.get('/devices', async (req, res) => {
+router.get('/devices', authenticateSimulator, async (req, res) => {
+  const { simulatorId } = req.simulatorData;
+  
   try {
-    const states = await simulatorRegistry.getAllStates();
-
-    // Check if simulator's are offline
-    const offlineSimulators = await Simulator.find({ status: 'offline' });
+    const devices = await Device.find({ simulatorId });
     
-    let responseData = {
-      devices: states
-    };
-    
-    // Add warnings if needed
-    if (offlineSimulators.length > 0) {
-      responseData.warnings = {
-        graceful_degradation: true,
-        offline_simulators: offlineSimulators.map(s => s.id),
-        message: "Some simulators are offline. Device data may be stale or incomplete."
+    const deviceStates = {};
+    devices.forEach(device => {
+      deviceStates[device.id] = {
+        on: device.on,
+        rebooting: device.rebooting,
+        action: device.action,
+        broker: device.broker,
+        lastUpdated: device.lastUpdated
       };
-    }
+    });
     
-    res.json(responseData);
+    res.json({ devices: deviceStates });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch device states' });
   }
@@ -206,6 +204,25 @@ router.post('/devices', async (req, res) => {
 });
 
 // ========== CONFIGURATION ROUTES ==========
+
+// GET handshake configuration
+router.get('/handshake', async (req, res) => {
+  const { simulatorUrl } = req.query;
+  
+  if (!simulatorUrl) {
+    return res.status(400).json({ error: 'Simulator URL is required' });
+  }
+  
+  try {
+    const response = await axios.get(`${simulatorUrl}/handshake`);
+    res.json(response.data);
+  } catch (error) {
+    res.status(error.response?.status || 500).json({
+      error: 'Error fetching handshake configuration',
+      details: error.message
+    });
+  }
+});
 
 // GET current configuration
 router.get('/configuration', async (req, res) => {
@@ -273,44 +290,25 @@ router.get('/configuration', async (req, res) => {
 });
 
 // Update /configuration
-router.post('/configuration', async (req, res) => {
-  const { simulatorUrl, config } = req.body;
-  
-  if (!simulatorUrl) {
-    return res.status(400).json({ error: 'Simulator URL is required' });
-  }
+router.post('/configuration', authenticateSimulator, async (req, res) => {
+  const { config } = req.body;
+  const { simulatorId, callbackUrl } = req.simulatorData;
   
   try {
-    // For now use the hostname as the ID
-    const hostname = new URL(simulatorUrl).hostname;
-    
-    // Get or create the simulator
-    let simulator = await Simulator.findOne({ url: simulatorUrl });
-    if (!simulator) {
-      simulator = new Simulator({
-        id: hostname,
-        url: simulatorUrl,
-        title: 'Simulator',
-        status: 'online',
+    // Update simulator configuration
+    await Simulator.findOneAndUpdate(
+      { id: simulatorId },
+      { 
+        config,
         lastSeen: Date.now()
-      });
-      await simulator.save();
-    }
-    
-    // Make the API call to the simulator
-    const response = await axios.post(`${simulatorUrl}/configuration`, config);
-    
-    // Update simulator registry with any new devices
-    if (config.devices) {
-      for (const deviceKey in config.devices) {
-        const device = config.devices[deviceKey];
-        await simulatorRegistry.registerSimulator(device.id || deviceKey, simulatorUrl, simulator.id);
       }
-    }
+    );
+    
+    // Forward to simulator
+    const response = await axios.post(`${callbackUrl}/configuration`, config);
     
     res.json(response.data);
   } catch (error) {
-    console.error('Error updating configuration:', error);
     res.status(error.response?.status || 500).json({
       error: 'Error updating configuration',
       details: error.message

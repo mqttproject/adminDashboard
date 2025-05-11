@@ -60,6 +60,56 @@ class SyncService {
     
     console.log(`Syncing devices for simulator ${simulator.id} at ${simulator.url}`);
     
+    // Attempt getting UUID from /configuration
+    const uuid = await this.extractSimulatorUUIDFromConfig(simulator);
+  
+    // If UUID is found and is different from current ID, update the simulator ID
+    if (uuid && uuid !== simulator.id) {
+      console.log(`Found UUID ${uuid} for simulator currently identified as ${simulator.id}`);
+      
+      try {
+        // Create/update a simulator with UUID
+        const updatedSimulator = await Simulator.findOneAndUpdate(
+          { id: uuid },
+          { 
+            url: simulator.url,
+            title: simulator.title || 'Simulator',
+            status: 'online',
+            lastSeen: Date.now()
+          },
+          { upsert: true, new: true }
+        );
+        
+        // Update device references
+        await Device.updateMany(
+          { simulatorId: simulator.id },
+          { simulatorId: uuid }
+        );
+        
+        // Update room references
+        await Room.updateMany(
+          { simulatorIds: simulator.id },
+          { $pull: { simulatorIds: simulator.id } }
+        );
+        
+        await Room.updateMany(
+          { },
+          { $addToSet: { simulatorIds: uuid } }
+        );
+        
+        // Delete the old record if it's different
+        if (simulator.id !== uuid) {
+          await Simulator.deleteOne({ id: simulator.id });
+          console.log(`Updated simulator ID from ${simulator.id} to ${uuid}`);
+          
+          // Update the simulator reference for the rest of this function
+          simulator = updatedSimulator;
+        }
+      } catch (error) {
+        console.error(`Error updating simulator ID:`, error);
+      }
+    }
+
     try {
       // Get devices from simulator
       let devicesList = [];
@@ -135,36 +185,77 @@ class SyncService {
       
       // Find devices to add to MongoDB (exist in simulator but not in DB)
       for (const device of devicesList) {
-        if (!dbDeviceIds.has(device.id)) {
-          console.log(`Adding device ${device.id} to database`);
-          
-          // Add to MongoDB
-          await Device.create({
-            id: device.id,
+  if (!dbDeviceIds.has(device.id)) {
+    console.log(`Adding device ${device.id} to database`);
+    
+    try {
+      // First, check if the device exists with a different simulator ID
+      const existingDevice = await Device.findOne({ id: device.id });
+      
+      if (existingDevice) {
+        console.log(`Device ${device.id} already exists with simulator ${existingDevice.simulatorId}`);
+        console.log(`Updating to new simulator ${simulator.id}`);
+        
+        // Update the existing device to point to the new simulator
+        await Device.findOneAndUpdate(
+          { id: device.id },
+          {
             simulatorId: simulator.id,
             action: device.action,
             broker: device.broker,
             on: device.on,
             rebooting: device.rebooting,
             lastUpdated: Date.now()
-          });
-          
-          console.log(`Added device ${device.id} to database`);
-        } else {
-          // Update existing device
-          console.log(`Updating device ${device.id} in database`);
-          await Device.findOneAndUpdate(
-            { id: device.id },
-            {
-              on: device.on,
-              rebooting: device.rebooting,
-              action: device.action,
-              broker: device.broker,
-              lastUpdated: Date.now()
-            }
-          );
-        }
+          }
+        );
+      } else {
+        // Create new device
+        await Device.create({
+          id: device.id,
+          simulatorId: simulator.id,
+          action: device.action,
+          broker: device.broker,
+          on: device.on,
+          rebooting: device.rebooting,
+          lastUpdated: Date.now()
+        });
       }
+      
+      console.log(`Successfully handled device ${device.id}`);
+    } catch (error) {
+      if (error.code === 11000) {
+        // Duplicate key error - update existing device
+        console.log(`Device ${device.id} already exists, updating...`);
+        await Device.findOneAndUpdate(
+          { id: device.id },
+          {
+            simulatorId: simulator.id,
+            action: device.action,
+            broker: device.broker,
+            on: device.on,
+            rebooting: device.rebooting,
+            lastUpdated: Date.now()
+          }
+        );
+      } else {
+        console.error(`Error adding device ${device.id}:`, error);
+      }
+    }
+    } else {
+      // Update existing device
+      console.log(`Updating device ${device.id} in database`);
+      await Device.findOneAndUpdate(
+        { id: device.id },
+        {
+          on: device.on,
+          rebooting: device.rebooting,
+          action: device.action,
+          broker: device.broker,
+          lastUpdated: Date.now()
+        }
+      );
+    }
+  }
       
       // Find devices to remove from MongoDB (exist in DB but not in simulator)
       let devicesToRemove = [];
@@ -212,6 +303,33 @@ class SyncService {
     
     await this.syncSimulatorDevices(simulator);
     return true;
+  }
+
+  // Sim UUID extractor function to avoid using IP as identifier
+  async extractSimulatorUUIDFromConfig(simulator) {
+    try {
+      // Get configuration from simulator
+      const response = await axios.get(`${simulator.url}/configuration`, { timeout: 5000 });
+      const configData = response.data;
+      
+      // Extract UUID using the same helper function
+      if (!configData || typeof configData !== 'object') return null;
+      
+      // Get the first key (IP address)
+      const firstKey = Object.keys(configData)[0];
+      if (!firstKey) return null;
+      
+      // Extract the UUID from the general section
+      const generalConfig = configData[firstKey]?.general;
+      if (generalConfig && generalConfig.Id) {
+        return generalConfig.Id;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error(`Error fetching UUID from simulator ${simulator.id}:`, error.message);
+      return null;
+    }
   }
 }
 

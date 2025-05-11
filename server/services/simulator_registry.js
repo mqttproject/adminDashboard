@@ -1,6 +1,8 @@
 const Simulator = require('../models/simulator');
 const Device = require('../models/device'); // Schema map to a MongoDB collection
 const Room = require('../models/room');
+const axios = require('axios');
+const { extractSimulatorUUID } = require('../utils/configHelpers');
 
 // In-memory cache for recently accessed information
 const cache = {
@@ -17,6 +19,17 @@ class SimulatorRegistry {
     console.log('Caches cleared');
   }
 
+  // Helper method to get UUID from simulator configuration
+  async getSimulatorUUID(url) {
+    try {
+      const response = await axios.get(`${url}/configuration`, { timeout: 5000 });
+      return extractSimulatorUUID(response.data);
+    } catch (error) {
+      console.error(`Error fetching UUID from simulator at ${url}:`, error.message);
+      return null;
+    }
+  }
+
   // Registering a new device with its corresponding simulator
   async registerSimulator(deviceId, url, simulatorId = null) {
     try {
@@ -26,18 +39,33 @@ class SimulatorRegistry {
         formattedUrl = `http://${formattedUrl}`;
       }
       
-      // If no simulatorId provided, extract from URL in a consistent way
-      if (!simulatorId) {
-        // Just use the host part (without port) for consistency
-        const urlObj = new URL(formattedUrl);
-        simulatorId = urlObj.hostname;
+      // Try to get UUID from configuration API
+      let finalSimulatorId = simulatorId;
+      
+      try {
+        const uuid = await this.getSimulatorUUID(formattedUrl);
+        if (uuid) {
+          console.log(`Using UUID ${uuid} from configuration for simulator at ${formattedUrl}`);
+          finalSimulatorId = uuid;
+        } else if (!simulatorId) {
+          // Fallback to hostname as before
+          const urlObj = new URL(formattedUrl);
+          finalSimulatorId = urlObj.hostname;
+          console.log(`Using hostname ${finalSimulatorId} as fallback for simulator at ${formattedUrl}`);
+        }
+      } catch (error) {
+        console.warn(`Could not fetch UUID from ${formattedUrl}, using provided ID or hostname:`, error.message);
+        if (!finalSimulatorId) {
+          const urlObj = new URL(formattedUrl);
+          finalSimulatorId = urlObj.hostname;
+        }
       }
       
-      console.log(`Registering device ${deviceId} with simulator ${simulatorId} at ${formattedUrl}`);
+      console.log(`Registering device ${deviceId} with simulator ${finalSimulatorId} at ${formattedUrl}`);
       
       // Create/update simulator
       const updateResult = await Simulator.findOneAndUpdate(
-        { id: simulatorId },
+        { id: finalSimulatorId },
         { 
           url: formattedUrl,
           lastSeen: Date.now(),
@@ -53,7 +81,7 @@ class SimulatorRegistry {
       await Device.findOneAndUpdate(
         { id: deviceId },
         { 
-          simulatorId,
+          simulatorId: finalSimulatorId,
           lastUpdated: Date.now()
         },
         { 

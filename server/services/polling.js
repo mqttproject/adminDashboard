@@ -1,7 +1,23 @@
 const axios = require('axios');
 const Simulator = require('../models/simulator');
 const Device = require('../models/device');
+const Room = require('../models/room');
 const simulatorRegistry = require('./simulator_registry');
+
+// UUID extraction function (add this if utils/configHelpers doesn't exist yet)
+function extractSimulatorUUID(configData) {
+  if (!configData || typeof configData !== 'object') return null;
+  
+  const firstKey = Object.keys(configData)[0];
+  if (!firstKey) return null;
+  
+  const generalConfig = configData[firstKey]?.general;
+  if (generalConfig && generalConfig.Id) {
+    return generalConfig.Id;
+  }
+  
+  return null;
+}
 
 class PollingService {
   constructor(interval = 5000) {
@@ -29,31 +45,65 @@ class PollingService {
       const simulators = await Simulator.find({});
       
       for (const simulator of simulators) {
-
         console.log(`Polling simulator ${simulator.id} at URL: ${simulator.url}`);
-        // Mark simulator as seen
-        await Simulator.findOneAndUpdate(
-          { id: simulator.id },
-          { lastSeen: Date.now() }
-        );
         
         try {
           console.log(`Attempting to reach simulator at ${simulator.url}/configuration`);
-          // Check if the simulator is reachable
-          await axios.get(`${simulator.url}/configuration`, { timeout: 5000 });
+          const configResponse = await axios.get(`${simulator.url}/configuration`, { timeout: 5000 });
           
+          // Extract UUID from configuration
+          const uuid = extractSimulatorUUID(configResponse.data);
+          
+          if (uuid && uuid !== simulator.id) {
+            console.log(`Found UUID ${uuid} for simulator currently identified as ${simulator.id}`);
+            
+            // Update to use UUID
+            await Simulator.findOneAndUpdate(
+              { id: uuid },
+              { 
+                url: simulator.url,
+                title: simulator.title || 'Simulator',
+                status: 'online',
+                lastSeen: Date.now()
+              },
+              { upsert: true }
+            );
+            
+            // Update device references
+            await Device.updateMany(
+              { simulatorId: simulator.id },
+              { simulatorId: uuid }
+            );
+            
+            // Update room references
+            await Room.updateMany(
+              { simulatorIds: simulator.id },
+              { $pull: { simulatorIds: simulator.id } }
+            );
+            
+            await Room.updateMany(
+              { },
+              { $addToSet: { simulatorIds: uuid } }
+            );
+            
+            // Delete the old record
+            if (simulator.id !== uuid) {
+              await Simulator.deleteOne({ id: simulator.id });
+              console.log(`Updated simulator ID from ${simulator.id} to ${uuid}`);
+              continue;
+            }
+          }
+
           console.log(`Successfully reached simulator ${simulator.id} - marking as online`);
-          // If reachable => update status to online
           await Simulator.findOneAndUpdate(
             { id: simulator.id },
             { status: 'online', lastSeen: Date.now() }
           );
           
-          // Check if status was updated
           const updatedSimulator = await Simulator.findOne({ id: simulator.id });
           console.log(`Simulator ${simulator.id} status after update: ${updatedSimulator.status}`);
 
-          // Poll each device for this particular simulator
+          // Poll devices
           const devices = await Device.find({ simulatorId: simulator.id });
           
           for (const device of devices) {
@@ -61,16 +111,15 @@ class PollingService {
               const response = await axios.get(`${simulator.url}/device/${device.id}`, 
                 { timeout: 3000 });
               
-              // Update device state in registry
               await simulatorRegistry.updateState(device.id, response.data);
             } catch (deviceError) {
               console.error(`Error polling device ${device.id}:`, deviceError.message);
             }
           }
+
         } catch (simulatorError) {
           console.error(`Error connecting to simulator ${simulator.id}:`, simulatorError.message);
           
-          // Mark simulator as offline
           await Simulator.findOneAndUpdate(
             { id: simulator.id },
             { status: 'offline' }
@@ -89,5 +138,6 @@ class PollingService {
     }
   }
 }
+
 
 module.exports = new PollingService();
