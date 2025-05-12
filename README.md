@@ -86,7 +86,6 @@ Located in the `palvelin/` directory, this Node.js application:
 **Starting the Broker:**
 ```bash
 cd palvelin
-npm ci
 npm start
 ```
 
@@ -122,8 +121,7 @@ The `devices.toml` file defines:
 **Starting the Simulator:**
 ```bash
 cd laite
-go build
-./laite
+sudo go run .
 ```
 
 ### Admin Dashboard
