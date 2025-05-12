@@ -84,5 +84,15 @@ export const apiService = {
 
   deleteDevice: (deviceId) => {
     return api.post(`/api/device/${deviceId}/delete`);
+  },
+
+  // Add a single device
+  addDevice: (deviceId, data) => {
+    return api.post(`/api/device/${deviceId}`, data);
+  },
+  
+  // Add multiple devices
+  addBulkDevices: (data) => {
+    return api.post('/api/devices', data);
   }
 };

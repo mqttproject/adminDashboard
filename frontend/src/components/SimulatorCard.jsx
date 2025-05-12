@@ -7,11 +7,15 @@ import { FaGripVertical } from '@react-icons/all-files/fa/FaGripVertical'
 import { FaChevronLeft } from '@react-icons/all-files/fa/FaChevronLeft'
 import { FaChevronRight } from '@react-icons/all-files/fa/FaChevronRight'
 import { FaTrash } from '@react-icons/all-files/fa/FaTrash'
+import { FaPlus } from '@react-icons/all-files/fa/FaPlus'
+import { v4 as uuidv4 } from 'uuid' // Import UUID v4 generator
 import DeviceList from './DeviceList'
 import { Card } from './ui/card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Switch } from './ui/switch'
+import { Textarea } from './ui/textarea'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import {
     Dialog,
     DialogContent,
@@ -46,7 +50,7 @@ import {
     SelectValue,
 } from "./ui/select"
 import { Badge } from './ui/badge'
-import { Toaster } from './ui/sonner'
+import { toast } from 'sonner'
 import { apiService } from '../services/api'
 
 // Import TanStack Table components
@@ -71,8 +75,22 @@ const SimulatorCard = ({
     const [title, setTitle] = useState(simulator.title)
     const [showMenu, setShowMenu] = useState(false)
     const [showDetailsDialog, setShowDetailsDialog] = useState(false)
+    const [showAddDeviceDialog, setShowAddDeviceDialog] = useState(false)
     const menuRef = useRef(null)
     const inputRef = useRef(null)
+
+    // Device form states
+    const [deviceTitle, setDeviceTitle] = useState('') // Changed from deviceId to deviceTitle
+    const [deviceAction, setDeviceAction] = useState('defaultAction')
+    const [deviceBroker, setDeviceBroker] = useState('tcp://localhost:1883')
+    const [bulkDevicesJson, setBulkDevicesJson] = useState('')
+    const [isAddingDevice, setIsAddingDevice] = useState(false)
+    const [addDeviceError, setAddDeviceError] = useState('')
+    
+    // Bulk device generation states
+    const [devicePrefix, setDevicePrefix] = useState('device')
+    const [deviceCount, setDeviceCount] = useState(3)
+    const [generateBulkView, setGenerateBulkView] = useState(false)
 
     // Table pagination state
     const [pageIndex, setPageIndex] = useState(0)
@@ -92,14 +110,163 @@ const SimulatorCard = ({
     const dialogStateRef = useRef({ wasOpen: false, simulatorId: null });
     const draggableId = simulator.id.toString();
 
+    // Helper function to generate a unique ID from a title
+    const generateUniqueId = (title) => {
+        // Clean the title (remove special chars, spaces, etc.)
+        const cleanTitle = title.trim().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-').toLowerCase();
+        // Generate UUID and append to title
+        return `${cleanTitle}-${uuidv4()}`;
+    };
+
+    // Open Add Device Dialog
+    const handleAddDevice = () => {
+        setShowAddDeviceDialog(true)
+        // Reset form states
+        setDeviceTitle('') // Reset title instead of id
+        setDeviceAction('defaultAction')
+        setDeviceBroker('tcp://localhost:1883')
+        setBulkDevicesJson('')
+        setAddDeviceError('')
+        setDevicePrefix('device')
+        setDeviceCount(3)
+        setGenerateBulkView(false)
+    }
+
+    // Generate bulk devices JSON
+    const generateBulkDevices = () => {
+        try {
+            const count = parseInt(deviceCount)
+            if (isNaN(count) || count <= 0 || count > 100) {
+                setAddDeviceError('Count must be between 1 and 100')
+                return
+            }
+
+            const devices = {}
+            for (let i = 1; i <= count; i++) {
+                // Generate a unique ID for each device
+                const deviceTitle = `${devicePrefix}${i}`
+                const uniqueId = generateUniqueId(deviceTitle)
+                
+                devices[uniqueId] = {
+                    id: uniqueId,
+                    action: deviceAction,
+                    broker: deviceBroker
+                }
+            }
+
+            setBulkDevicesJson(JSON.stringify({ devices }, null, 2))
+            setAddDeviceError('')
+        } catch (error) {
+            setAddDeviceError('Error generating devices: ' + error.message)
+        }
+    }
+
+    // Add a single device
+    const handleAddSingleDevice = async () => {
+        if (!simulator.url) {
+            setAddDeviceError('Simulator URL is required')
+            return
+        }
+
+        if (!deviceTitle || !deviceAction || !deviceBroker) {
+            setAddDeviceError('All fields are required')
+            return
+        }
+
+        setIsAddingDevice(true)
+        setAddDeviceError('')
+
+        try {
+            // Generate a unique ID based on the title
+            const uniqueId = generateUniqueId(deviceTitle)
+            
+            await apiService.addDevice(uniqueId, {
+                action: deviceAction,
+                broker: deviceBroker,
+                simulatorUrl: simulator.url,
+                simulatorId: simulator.id
+            })
+
+            toast.success('Device Added', {
+                description: `Device "${deviceTitle}" has been added successfully.`
+            })
+            
+            setShowAddDeviceDialog(false)
+            await refreshData() // Refresh data to show new device
+        } catch (error) {
+            console.error('Error adding device:', error)
+            setAddDeviceError(error.response?.data?.error || 'Failed to add device')
+            toast.error('Error Adding Device', {
+                description: error.response?.data?.error || 'Failed to add device'
+            })
+        } finally {
+            setIsAddingDevice(false)
+        }
+    }
+
+    // Add bulk devices
+    const handleAddBulkDevices = async () => {
+        if (!simulator.url) {
+            setAddDeviceError('Simulator URL is required')
+            return
+        }
+
+        let devicesObj
+        try {
+            // If the JSON doesn't parse, this will throw an error
+            const parsed = JSON.parse(bulkDevicesJson)
+            if (!parsed.devices || typeof parsed.devices !== 'object') {
+                setAddDeviceError('JSON must contain a "devices" object')
+                return
+            }
+            
+            // Validate device structure
+            for (const [key, device] of Object.entries(parsed.devices)) {
+                if (!device.id || !device.action || !device.broker) {
+                    setAddDeviceError(`Device ${key} is missing required fields (id, action, broker)`)
+                    return
+                }
+            }
+            
+            devicesObj = parsed.devices
+        } catch (error) {
+            setAddDeviceError('Invalid JSON: ' + error.message)
+            return
+        }
+
+        setIsAddingDevice(true)
+        setAddDeviceError('')
+
+        try {
+            await apiService.addBulkDevices({
+                simulatorUrl: simulator.url,
+                devices: devicesObj,
+                simulatorId: simulator.id
+            })
+
+            toast.success('Devices Added', {
+                description: `${Object.keys(devicesObj).length} devices have been added successfully.`
+            })
+            
+            setShowAddDeviceDialog(false)
+            await refreshData() // Refresh data to show new devices
+        } catch (error) {
+            console.error('Error adding devices:', error)
+            setAddDeviceError(error.response?.data?.error || 'Failed to add devices')
+            toast.error('Error Adding Devices', {
+                description: error.response?.data?.error || 'Failed to add devices'
+            })
+        } finally {
+            setIsAddingDevice(false)
+        }
+    }
+
     // Handle device toggle (on/off)
     const handleDeviceToggle = async (device) => {
         if (!refreshData) {
             console.error("refreshData function is not provided to SimulatorCard");
-            Toaster({ 
-                variant: "destructive", 
-                title: "Error", 
-                description: "Cannot refresh data after action." 
+            toast.error("Error", {
+                description: "Cannot refresh data after action."
             });
             return;
         }
@@ -108,24 +275,20 @@ const SimulatorCard = ({
         try {
             if (device.on) {
                 await apiService.turnDeviceOff(device.id);
-                Toaster({ 
-                    title: "Device Turned Off", 
-                    description: `Device ${device.id} is now off.` 
+                toast.success("Device Turned Off", {
+                    description: `Device ${device.id} is now off.`
                 });
             } else {
                 await apiService.turnDeviceOn(device.id);
-                Toaster({ 
-                    title: "Device Turned On", 
-                    description: `Device ${device.id} is now on.` 
+                toast.success("Device Turned On", {
+                    description: `Device ${device.id} is now on.`
                 });
             }
             await refreshData(); // Refresh data to update UI with new device state
         } catch (error) {
             console.error('Error toggling device:', error);
-            Toaster({ 
-                variant: "destructive", 
-                title: "Error", 
-                description: error.response?.data?.error || "Could not toggle device state." 
+            toast.error("Error", {
+                description: error.response?.data?.error || "Could not toggle device state."
             });
         } finally {
             setIsDeviceActionLoading(null);
@@ -147,18 +310,15 @@ const SimulatorCard = ({
         setIsDeviceActionLoading(deviceToDelete.id);
         try {
             await apiService.deleteDevice(deviceToDelete.id);
-            Toaster({ 
-                title: "Device Deleted", 
-                description: `Device ${deviceToDelete.id} has been removed.` 
+            toast.success("Device Deleted", {
+                description: `Device ${deviceToDelete.id} has been removed.`
             });
             setDeviceToDelete(null); // Close dialog
             await refreshData(); // Refresh data after deletion
         } catch (error) {
             console.error('Error deleting device:', error);
-            Toaster({ 
-                variant: "destructive", 
-                title: "Error", 
-                description: error.response?.data?.error || "Could not delete device." 
+            toast.error("Error", {
+                description: error.response?.data?.error || "Could not delete device."
             });
         } finally {
             setIsDeviceActionLoading(null);
@@ -527,7 +687,19 @@ const SimulatorCard = ({
                     </div>
 
                     <div className="py-2">
-                        <h3 className="font-medium mb-3">Devices</h3>
+                        <div className="flex justify-between items-center mb-3">
+                            <h3 className="font-medium">Devices</h3>
+                            <Button 
+                                size="sm" 
+                                className="h-8" 
+                                onClick={handleAddDevice}
+                                disabled={simulator.status !== 'online'}
+                            >
+                                <FaPlus className="mr-2 h-4 w-4" />
+                                Add Device
+                            </Button>
+                        </div>
+                        
                         {data && data.length > 0 ? (
                             <>
                                 <div className="border rounded-md">
@@ -650,6 +822,211 @@ const SimulatorCard = ({
                             Close
                         </Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Add Device Dialog */}
+            <Dialog open={showAddDeviceDialog} onOpenChange={setShowAddDeviceDialog}>
+                <DialogContent className="sm:max-w-[550px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl flex items-center gap-2">
+                            <FaPlus className="text-primary" /> 
+                            Add Devices to {simulator.title}
+                        </DialogTitle>
+                        <DialogDescription>
+                            Add one or multiple devices to this simulator.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {addDeviceError && (
+                        <div className="bg-destructive/15 text-destructive px-4 py-3 rounded-md text-sm">
+                            {addDeviceError}
+                        </div>
+                    )}
+
+                    <Tabs defaultValue="single">
+                        <TabsList className="grid w-full grid-cols-2">
+                            <TabsTrigger value="single">Single Device</TabsTrigger>
+                            <TabsTrigger value="bulk">Bulk Addition</TabsTrigger>
+                        </TabsList>
+
+                        <TabsContent value="single" className="space-y-4 py-4">
+                            <div className="space-y-4">
+                                <div>
+                                    <label htmlFor="deviceTitle" className="text-sm font-medium block mb-1">
+                                        Device Name
+                                    </label>
+                                    <Input
+                                        id="deviceTitle"
+                                        value={deviceTitle}
+                                        onChange={(e) => setDeviceTitle(e.target.value)}
+                                        placeholder="Enter device name (e.g. Coffee Machine)"
+                                    />
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        A unique ID will be generated automatically.
+                                    </p>
+                                </div>
+
+                                <div>
+                                    <label htmlFor="deviceAction" className="text-sm font-medium block mb-1">
+                                        Action
+                                    </label>
+                                    <Input
+                                        id="deviceAction"
+                                        value={deviceAction}
+                                        onChange={(e) => setDeviceAction(e.target.value)}
+                                        placeholder="Device action"
+                                    />
+                                </div>
+                                
+                                <div>
+                                    <label htmlFor="deviceBroker" className="text-sm font-medium block mb-1">
+                                        MQTT Broker URL
+                                    </label>
+                                    <Input
+                                        id="deviceBroker"
+                                        value={deviceBroker}
+                                        onChange={(e) => setDeviceBroker(e.target.value)}
+                                        placeholder="tcp://localhost:1883"
+                                    />
+                                </div>
+                            </div>
+                            
+                            <DialogFooter className="pt-4">
+                                <Button variant="outline" onClick={() => setShowAddDeviceDialog(false)}>
+                                    Cancel
+                                </Button>
+                                <Button 
+                                    onClick={handleAddSingleDevice} 
+                                    disabled={isAddingDevice}
+                                >
+                                    {isAddingDevice ? 'Adding...' : 'Add Device'}
+                                </Button>
+                            </DialogFooter>
+                        </TabsContent>
+
+                        <TabsContent value="bulk" className="py-4 space-y-4">
+                            <div className="flex flex-col space-y-4">
+                                <div className="flex items-center space-x-2">
+                                    <Button 
+                                        variant="outline" 
+                                        onClick={() => setGenerateBulkView(!generateBulkView)}
+                                    >
+                                        {generateBulkView ? 'Edit JSON Directly' : 'Generate Devices'}
+                                    </Button>
+                                </div>
+
+                                {generateBulkView ? (
+                                    <div className="space-y-4">
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label htmlFor="devicePrefix" className="text-sm font-medium block mb-1">
+                                                    Device Name Prefix
+                                                </label>
+                                                <Input
+                                                    id="devicePrefix"
+                                                    value={devicePrefix}
+                                                    onChange={(e) => setDevicePrefix(e.target.value)}
+                                                    placeholder="device"
+                                                />
+                                                <p className="text-xs text-muted-foreground mt-1">
+                                                    A number will be added to this prefix
+                                                </p>
+                                            </div>
+                                            
+                                            <div>
+                                                <label htmlFor="deviceCount" className="text-sm font-medium block mb-1">
+                                                    Count (max 100)
+                                                </label>
+                                                <Input
+                                                    id="deviceCount"
+                                                    type="number"
+                                                    min="1"
+                                                    max="100"
+                                                    value={deviceCount}
+                                                    onChange={(e) => setDeviceCount(e.target.value)}
+                                                />
+                                            </div>
+                                        </div>
+                                        
+                                        <div>
+                                            <label htmlFor="bulkAction" className="text-sm font-medium block mb-1">
+                                                Action
+                                            </label>
+                                            <Input
+                                                id="bulkAction"
+                                                value={deviceAction}
+                                                onChange={(e) => setDeviceAction(e.target.value)}
+                                                placeholder="Device action"
+                                            />
+                                        </div>
+                                        
+                                        <div>
+                                            <label htmlFor="bulkBroker" className="text-sm font-medium block mb-1">
+                                                MQTT Broker URL
+                                            </label>
+                                            <Input
+                                                id="bulkBroker"
+                                                value={deviceBroker}
+                                                onChange={(e) => setDeviceBroker(e.target.value)}
+                                                placeholder="tcp://localhost:1883"
+                                            />
+                                        </div>
+                                        
+                                        <Button 
+                                            variant="secondary" 
+                                            className="w-full" 
+                                            onClick={generateBulkDevices}
+                                        >
+                                            Generate JSON
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <div>
+                                        <label htmlFor="bulkDevicesJson" className="text-sm font-medium block mb-1">
+                                            Devices JSON
+                                        </label>
+                                        <Textarea
+                                            id="bulkDevicesJson"
+                                            value={bulkDevicesJson}
+                                            onChange={(e) => setBulkDevicesJson(e.target.value)}
+                                            placeholder={`{
+  "devices": {
+    "coffee-machine-1234abcd": {
+      "id": "coffee-machine-1234abcd",
+      "action": "coffeeAction",
+      "broker": "tcp://localhost:1883"
+    },
+    "thermostat-5678efgh": {
+      "id": "thermostat-5678efgh",
+      "action": "thermostatAction",
+      "broker": "tcp://localhost:1883"
+    }
+  }
+}`}
+                                            className="font-mono h-[200px]"
+                                        />
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            JSON must include a "devices" object with device IDs as keys. 
+                                            Each device ID should be unique.
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                            
+                            <DialogFooter className="pt-4">
+                                <Button variant="outline" onClick={() => setShowAddDeviceDialog(false)}>
+                                    Cancel
+                                </Button>
+                                <Button 
+                                    onClick={handleAddBulkDevices}
+                                    disabled={isAddingDevice}
+                                >
+                                    {isAddingDevice ? 'Adding...' : 'Add Devices'}
+                                </Button>
+                            </DialogFooter>
+                        </TabsContent>
+                    </Tabs>
                 </DialogContent>
             </Dialog>
 
