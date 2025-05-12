@@ -11,26 +11,26 @@ This system provides a complete IoT device simulation environment with a central
 ```
                  REST API
 ┌───────────────────────────┐          ┌─────────────────┐
-│   IoT Device Simulator    │◄────────►│ Admin Dashboard │
-│       (laite)             │          │  (Web Server)   │
+│   IoT Device Simulator    │          │    MongoDB      │
+│       (laite)             │          │    Database     │
 │   ┌──────────────────┐    │          └─────────────────┘
-│   │ Simulated Device │    │                   │
+│   │ Simulated Device │    │                   ▲
 │   │    (coffee1)     │    │                   │
 │   └──────┬───────────┘    │                   ▼
 │          │                │          ┌─────────────────┐
 │   ┌──────┴───────────┐    │          │                 │
-│   │ Simulated Device │    │          │     MongoDB     │
-│   │    (coffee2)     │    │          │    Database     │
+│   │ Simulated Device │    │          │ Admin Dashboard │
+│   │    (coffee2)     │    │◄────────►│   (Web Server)  │
 │   └──────┬───────────┘    │          │                 │
 │          │                │          └─────────────────┘
-│   ┌──────┴───────────┐    │
-│   │ Simulated Device │    │
-│   │   (doorLock1)    │    │
-│   └──────┬───────────┘    │
-│          │                │
-└──────────┼────────────────┘
-           │
-           ▼
+│   ┌──────┴───────────┐    │                   ▲
+│   │ Simulated Device │    │                   │
+│   │   (doorLock1)    │    │                   ▼
+│   └──────┬───────────┘    │          ┌─────────────────┐
+│          │                │          │ Admin Dashboard │
+└──────────┼────────────────┘          │    (Frontend)   │
+           │                           └─────────────────┘
+           ▼                           
     ┌─────────────────┐
     │                 │
     │   MQTT Broker   │
@@ -153,6 +153,88 @@ npm ci
 npm start
 ```
 
+### Frontend Application
+
+Located in the `frontend/` directory, this React-based application:
+- Provides a modern, responsive user interface
+- Visualizes simulator and device states
+- Enables drag-and-drop organization of simulators into rooms
+- Offers real-time device control and monitoring
+- Includes user authentication and profile management
+
+**Technology Stack:**
+- React for component-based UI
+- React Router for navigation
+- Tailwind CSS for styling
+- shadcn/ui component library for UI elements
+- React Beautiful DND for drag-and-drop functionality
+
+**Key Features:**
+
+1.  **User Authentication**:
+    - Secure login for users to access the dashboard.
+
+    ![Login Page](./readmeImages/login.png)
+
+2.  **Dashboard View**:
+    - Visual representation of rooms and simulators.
+    - Drag-and-drop interface for organizing simulators.
+    - Real-time status updates.
+
+    ![Dashboard View](./readmeImages/dashboard.png)
+
+3.  **Simulator Management**:
+    - Add new simulators by generating registration tokens.
+    - Configure simulator settings.
+    - Monitor simulator status (online/offline).
+
+    ![Simulator Creation](./readmeImages/simulatorCreation.png)
+    *Generating a new simulator token.*
+
+    ![Simulator Token](./readmeImages/simulatorToken.png)
+    *Copying the generated token for simulator registration.*
+
+4.  **Device Control and Management**:
+    - Turn devices on/off.
+    - View device details and status.
+    - Add new devices to a simulator, either individually or in bulk.
+    - Remove devices from simulators.
+
+    ![Device Management](./readmeImages/deviceManagement.png)
+    *Viewing and managing devices within a simulator.*
+
+    ![Single Device Addition](./readmeImages/deviceaddition_single.png)
+    *Adding a single new device to a simulator.*
+
+    ![Bulk Device Addition](./readmeImages/deviceaddition_bulk.png)
+    *Adding multiple devices using JSON configuration.*
+
+5.  **Room Organization**:
+    - Group simulators into logical rooms (e.g., "Office Left Wing").
+    - Customize room settings.
+    - Organize simulators by purpose or location within the dashboard.
+    *(This is also visible in the Dashboard View image above)*
+
+**Key Components:**
+- `SimulatorCard`: Displays individual simulator with its devices
+- `RoomGroup`: Organizes simulators into rooms
+- `DeviceList`: Shows devices associated with a simulator
+- `Sidebar`: Provides navigation and quick simulator access
+- `Dashboard`: Main layout for viewing and organizing simulators
+
+**Starting the Frontend:**
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+**Build for Production:**
+```bash
+cd frontend
+npm run build
+```
+
 ## API Endpoints
 
 ### Dashboard API
@@ -185,13 +267,12 @@ npm start
 The system uses a token-based authentication system:
 
 1. **User Authentication**: JWT tokens for dashboard access
-2. **Simulator Registration**: One-time registration tokens gained when registrating a new simulator, which must then be inputted into the "token" field under [general] of devices.toml
+2. **Simulator Registration**: One-time registration tokens
 3. **Device Control**: Implicit permission through simulator ownership
 
 ## Development Notes
 
 - The simulator authenticates only once during registration
-- Token must be added to the token field of "devices.toml" file within the /laite folder
 - Token is required only for the initial connection
 - Communication after registration does not use authentication
 - The server identifies simulators by their UUID, not URL
