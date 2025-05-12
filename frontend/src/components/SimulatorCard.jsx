@@ -409,7 +409,7 @@ const SimulatorCard = ({
                 );
             },
         },
-    ], [isDeviceActionLoading]);
+    ], [isDeviceActionLoading, handleDeviceToggle]);
 
     const tableKey = useMemo(() => `simulator-table-${simulator.id}`, [simulator.id]);
     const data = useMemo(() => simulator.devices || [], [simulator.devices]);
@@ -601,7 +601,7 @@ const SimulatorCard = ({
 
                         <div className="p-4">
                             <div className="mb-4">
-                                <p className="text-sm text-muted-foreground">Simulator</p>
+                                <p className="text-sm text-muted-foreground">{simulator.url}</p>
                                 <div className="flex items-center justify-between">
                                     {isEditing ? (
                                         <Input
