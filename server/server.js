@@ -17,7 +17,9 @@ const pollingService = require('./services/polling');
 const syncService = require('./services/sync-service')
 const connectDB = require('./config/db');
 const simulatorRegistry = require('./services/simulator_registry');
-const simulatorRoutes = require('./routes/simulator');
+
+const discoveryRoutes = require('./routes/discovery');
+//const simplifiedDiscoveryRoutes = require('./routes/simplified-discovery');
 
 // Import MongoDB models 
 const Room = require('./models/room');
@@ -176,7 +178,8 @@ dashboardRouter.put('/instances/update-title', async (req, res) => {
 app.use('/auth', authRoutes);
 app.use('/api', apiRoutes);
 app.use('/api/dashboard', dashboardRoutes.router);
-app.use('/api/simulator', simulatorRoutes); 
+app.use('/api/discovery', discoveryRoutes); 
+//app.use('/api/', simplifiedDiscoveryRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ 

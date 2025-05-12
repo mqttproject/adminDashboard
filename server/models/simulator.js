@@ -7,7 +7,7 @@ const simulatorSchema = new mongoose.Schema({
   status: { type: String, default: 'offline', enum: ['online', 'offline', 'rebooting'] },
   lastSeen: { type: Date, default: Date.now },
   config: { type: mongoose.Schema.Types.Mixed }, // Full configuration data
-  token: { type: String }, // Authentication token (hash this in production)
+  expectedToken: { type: String, default: null }, // Authentication token (hash this in production)
   registeredAt: { type: Date, default: Date.now },
   configuration: { type: mongoose.Schema.Types.Mixed } // Store full config from registration
 });

@@ -5,7 +5,7 @@ const { authenticate } = require('../middleware/auth_mw');
 const simulatorRegistry = require('../services/simulator_registry');
 const Simulator = require('../models/simulator');
 const { extractSimulatorUUID } = require('../utils/configHelpers');
-const { authenticateSimulator } = require('../middleware/auth_simulator');
+
 
 const router = express.Router();
 
@@ -148,7 +148,7 @@ router.post('/device/:id', async (req, res) => {
 });
 
 // Get all devices
-router.get('/devices', authenticateSimulator, async (req, res) => {
+router.get('/devices', async (req, res) => {
   const { simulatorId } = req.simulatorData;
   
   try {
@@ -290,7 +290,7 @@ router.get('/configuration', async (req, res) => {
 });
 
 // Update /configuration
-router.post('/configuration', authenticateSimulator, async (req, res) => {
+router.post('/configuration', async (req, res) => {
   const { config } = req.body;
   const { simulatorId, callbackUrl } = req.simulatorData;
   

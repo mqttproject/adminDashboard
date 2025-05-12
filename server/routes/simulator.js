@@ -1,3 +1,4 @@
+/*
 const express = require('express');
 const crypto = require('crypto');
 const axios = require('axios');
@@ -8,7 +9,7 @@ const { authenticateSimulator, addToken, removeToken } = require('../middleware/
 
 const router = express.Router();
 
-// This could be in environment variables
+// This should be in environment variables
 const SIMULATOR_SECRET = process.env.SIMULATOR_SECRET || 'secret-key';
 
 // Simulator registration endpoint
@@ -136,3 +137,4 @@ router.post('/heartbeat', authenticateSimulator, async (req, res) => {
 });
 
 module.exports = router;
+*/

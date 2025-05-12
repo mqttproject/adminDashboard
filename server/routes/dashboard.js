@@ -6,7 +6,6 @@ const Room = require('../models/room');
 const simulatorRegistry = require('../services/simulator_registry');
 
 // Heartbeat endpoint
-
 router.get('/heartbeat', async (req, res) => {
   try {
     // Get all simulators with their devices
@@ -99,6 +98,47 @@ router.get('/heartbeat', async (req, res) => {
   }
 });
 
+// Add simulator endpoint
+router.post('/simulator/addSimulator', async (req, res) => {
+  try {
+    const simulatorTitle = req.body.title;
+    const userId = req.user.userId;
+    const timeToLive = req.body.timeToLive || '30d';
+
+    // Generate a temporary ID for the awaiting simulator
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+    const simulatorToken = jwt.sign(
+      { userId: userId },
+      process.env.JWT_SECRET || 'your_jwt_secret_key',
+      { expiresIn: timeToLive }
+    );
+
+    //add simulator to the database
+    const simulator = new Simulator({
+      id: tempId, // Use a temporary ID to avoid collisions
+      title: simulatorTitle,
+      owner: userId,
+      status: 'awaiting',
+      lastSeen: Date.now(),
+      expectedToken: simulatorToken
+    });
+    await simulator.save();
+
+    res.status(201).json({
+      token: simulatorToken,
+      tempId: tempId // Return the temp ID so it can be used for updates if needed
+    });
+
+  } catch (error) {
+    console.error('Error adding simulator:', error);
+    res.status(500).json({
+      success: false,
+      message: "Error adding simulator: " + error.message
+    });
+  }
+});
+
 // Add instance to room
 router.post('/rooms/add-instance', async (req, res) => {
   const { instanceId, roomId } = req.body;
@@ -182,73 +222,3 @@ router.put('/instances/update-title', async (req, res) => {
 });
 
 module.exports = { router };
-
-/*
-// This will store references to the data from server.js
-let instances;
-let rooms;
-
-// Function to inject data references from server.js
-const setData = (instancesRef, roomsRef) => {
-  instances = instancesRef;
-  rooms = roomsRef;
-};
-
-// Heartbeat endpoint that combines rooms and instances data
-router.get('/heartbeat', (req, res) => {
-  res.json({ instances, rooms });
-});
-
-// Add instance to room
-router.post('/rooms/add-instance', (req, res) => {
-  const { instanceId, roomId } = req.body;
-  const room = rooms.find(r => r.id === roomId);
-  
-  if (room && !room.instances.includes(instanceId)) {
-    // Remove from other rooms first, including unassigned
-    rooms.forEach(r => {
-      r.instances = r.instances.filter(id => id !== instanceId);
-    });
-
-    // Add to the new room
-    room.instances.push(instanceId);
-    res.json({ success: true, rooms });
-  } else {
-    res.status(400).json({ success: false, message: 'Room not found or instance already in room' });
-  }
-});
-
-// Remove instance from room
-router.post('/rooms/remove-instance', (req, res) => {
-  const { instanceId, roomId } = req.body;
-  const room = rooms.find(r => r.id === roomId);
-  
-  if (room) {
-    room.instances = room.instances.filter(id => id !== instanceId);
-    
-    // Add to unassigned room
-    const unassignedRoom = rooms.find(r => r.id === 'unassigned');
-    if (unassignedRoom && !unassignedRoom.instances.includes(instanceId)) {
-      unassignedRoom.instances.push(instanceId);
-    }
-    
-    res.json({ success: true, rooms });
-  } else {
-    res.status(400).json({ success: false, message: 'Room not found' });
-  }
-});
-
-// Update instance title
-router.put('/instances/update-title', (req, res) => {
-  const { instanceId, title } = req.body;
-  const instance = instances.find(i => i.id === instanceId);
-  
-  if (instance) {
-    instance.title = title;
-    res.json({ success: true, instance });
-  } else {
-    res.status(400).json({ success: false, message: 'Instance not found' });
-  }
-});
-
-module.exports = { router, setData }; */
