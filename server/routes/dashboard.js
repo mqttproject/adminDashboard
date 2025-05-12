@@ -4,6 +4,8 @@ const { authenticate } = require('../middleware/auth_mw');
 const Simulator = require('../models/simulator');
 const Room = require('../models/room');
 const User = require('../models/user');
+const Device = require('../models/device');
+const jwt = require('jsonwebtoken');
 
 // All dashboard routes require authentication
 router.use(authenticate);
@@ -19,6 +21,15 @@ router.get('/heartbeat', async (req, res) => {
 
     // Get rooms owned by user
     const rooms = await Room.find({ owner: req.user.userId }).lean();
+
+    // Enhance simulators with their device information
+    for (const simulator of simulators) {
+      // Find all devices belonging to this simulator
+      const devices = await Device.find({ simulatorId: simulator.id }).lean();
+      
+      // Attach full device information to the simulator
+      simulator.devices = devices;
+    }
 
     res.json({
       simulators: simulators,
@@ -170,35 +181,40 @@ router.put('/simulator/update-title', async (req, res) => {
 //Add simulator to user
 router.post('/simulator/addSimulator', async (req, res) => {
   try {
-    const simulatorToken = req.body.token;
     const simulatorTitle = req.body.title;
     const userId = req.user.userId;
+    const timeToLive = req.body.timeToLive || '30d';
+
+    // Generate a temporary ID for the awaiting simulator
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+    const simulatorToken = jwt.sign(
+      { userId: userId },
+      process.env.JWT_SECRET || 'your_jwt_secret_key',
+      { expiresIn: timeToLive }
+    );
 
     //add simulator to the database
     const simulator = new Simulator({
+      id: tempId, // Use a temporary ID to avoid collisions
       title: simulatorTitle,
       owner: userId,
-      status: 'awaitng',
+      status: 'awaiting',
       lastSeen: Date.now(),
       expectedToken: simulatorToken
     });
     await simulator.save();
 
     res.status(201).json({
-      success: true,
-      message: 'Simulator added successfully',
-      simulator: {
-        id: simulator.id,
-        title: simulator.title,
-        status: simulator.status
-      }
+      token: simulatorToken,
+      tempId: tempId // Return the temp ID so it can be used for updates if needed
     });
 
   } catch (error) {
     console.error('Error adding simulator:', error);
     res.status(500).json({
       success: false,
-      message: "Error adding simulator"
+      message: "Error adding simulator: " + error.message
     });
   }
 });

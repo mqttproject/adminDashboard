@@ -8,6 +8,7 @@ import { useAuth } from './context/AuthContext'
 
 function App() {
   const [simulators, setSimulators] = useState([])
+  const [awaitingSimulators, setAwaitingSimulators] = useState([])
   const [rooms, setRooms] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -20,7 +21,12 @@ function App() {
       const response = await apiService.fetchHeartbeat();
       const data = response.data;
 
-      setSimulators(data.simulators);
+      // Separate simulators by status
+      const activeSimulators = data.simulators.filter(sim => sim.status !== 'awaiting');
+      const awaiting = data.simulators.filter(sim => sim.status === 'awaiting');
+      
+      setSimulators(activeSimulators);
+      setAwaitingSimulators(awaiting);
       setRooms(data.rooms);
       setIsLoading(false);
       setIsRefreshing(false);
@@ -144,7 +150,7 @@ function App() {
 
   return (
     <div className="flex h-screen bg-background">
-      <Sidebar simulators={simulators} />
+      <Sidebar simulators={simulators} awaitingSimulators={awaitingSimulators} />
       <main className="flex-1 overflow-auto relative">
         {isLoading ? (
           <div className="flex justify-center items-center h-full">
@@ -168,6 +174,7 @@ function App() {
               onAddToRoom={addToRoom}
               onRemoveFromRoom={removeFromRoom}
               onEditSimulatorTitle={editSimulatorTitle}
+              refreshData={refreshData}
             />
           </>
         )}

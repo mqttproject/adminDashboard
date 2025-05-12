@@ -12,7 +12,8 @@ const RoomGroup = ({
     onEditSimulatorTitle,
     allRooms,
     droppableId,
-    isStandalone = false
+    isStandalone = false,
+    refreshData
 }) => {
     const [isExpanded, setIsExpanded] = useState(true)
 
@@ -60,6 +61,7 @@ const RoomGroup = ({
                                     rooms={isStandalone ? allRooms : allRooms?.filter(r => r.id !== room.id)}
                                     onAddToRoom={(roomId) => onAddToRoom(simulator.id, roomId)}
                                     inRoom={!isStandalone}
+                                    refreshData={refreshData}
                                 />
                             ))}
 

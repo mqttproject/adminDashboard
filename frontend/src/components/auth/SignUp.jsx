@@ -136,7 +136,7 @@ const SignUp = () => {
                         </div>
 
                         <Button type="submit" className="w-full" disabled={isLoading}>
-                            {isLoading ? "Logging in..." : "Login"}
+                            {isLoading ? "Creating Account..." : "Create Account"}
                         </Button>
 
                         <div className="relative">
