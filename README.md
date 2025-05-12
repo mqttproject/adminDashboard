@@ -124,7 +124,25 @@ cd laite
 sudo go run .
 ```
 
-### Admin Dashboard
+## Admin Dashboard
+
+### Installation
+1. Clone the repository:
+   ```bash
+    git clone
+    cd adminDashboard
+    ```
+2. Install dependencies:
+    ```bash
+      npm i
+    ```
+3. Run frontend and backend:
+    ```bash
+      npm run dev
+    ```
+    *Note: The MongoDB must be running for the frontend and backend to function properly.*
+
+### Overview
 
 Located in the `server/` directory, this Node.js/Express application:
 - Provides user authentication and management
@@ -149,7 +167,7 @@ Located in the `server/` directory, this Node.js/Express application:
 **Starting the Server:**
 ```bash
 cd server
-npm ci
+npm i
 npm start
 ```
 
@@ -225,7 +243,7 @@ Located in the `frontend/` directory, this React-based application:
 **Starting the Frontend:**
 ```bash
 cd frontend
-npm install
+npm i
 npm run dev
 ```
 
