@@ -3,7 +3,14 @@ import { DragDropContext } from 'react-beautiful-dnd'
 import RoomGroup from './RoomGroup'
 import SearchBar from './SearchBar'
 
-const Dashboard = ({ simulators, rooms, onAddToRoom, onRemoveFromRoom, onEditSimulatorTitle }) => {
+const Dashboard = ({ 
+    simulators, 
+    rooms, 
+    onAddToRoom, 
+    onRemoveFromRoom, 
+    onEditSimulatorTitle,
+    refreshData // Add this prop
+}) => {
     const [searchTerm, setSearchTerm] = useState('')
     const [isDragging, setIsDragging] = useState(false)
 
@@ -115,6 +122,7 @@ const Dashboard = ({ simulators, rooms, onAddToRoom, onRemoveFromRoom, onEditSim
                             onEditSimulatorTitle={onEditSimulatorTitle}
                             allRooms={regularRooms}
                             droppableId={room.id}
+                            refreshData={refreshData} // This will now be properly passed
                         />
                     ))}
 
@@ -128,6 +136,7 @@ const Dashboard = ({ simulators, rooms, onAddToRoom, onRemoveFromRoom, onEditSim
                         onRemoveFromRoom={onRemoveFromRoom}
                         onAddToRoom={onAddToRoom}
                         droppableId="standalone"
+                        refreshData={refreshData} // This will now be properly passed
                     />
                 </div>
             </div>

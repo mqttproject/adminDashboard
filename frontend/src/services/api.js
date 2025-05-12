@@ -67,5 +67,22 @@ export const apiService = {
   // Simulator management
   updateSimulatorTitle: (simulatorId, title) => {
     return api.put('/api/simulator/update-title', { simulatorId, title });
+  },
+
+  addSimulator: (data) => {
+    return api.post('/api/simulator/addSimulator', data);
+  },
+
+  // Device control methods
+  turnDeviceOn: (deviceId) => {
+    return api.post(`/api/device/${deviceId}/on`);
+  },
+
+  turnDeviceOff: (deviceId) => {
+    return api.post(`/api/device/${deviceId}/off`);
+  },
+
+  deleteDevice: (deviceId) => {
+    return api.post(`/api/device/${deviceId}/delete`);
   }
 };

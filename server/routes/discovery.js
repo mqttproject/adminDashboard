@@ -53,13 +53,27 @@ router.post('/simulators/register', async (req, res) => {
 
     // Try to find simulator by expectedToken first
     let simulator = await Simulator.findOne({ expectedToken: token });
-    
+
     if (simulator) {
-      // Simulator found by token
+      // Simulator found by token - handle temp ID to real ID transition
       console.log("Found simulator by token:", simulator.id);
       
-      // Don't change the ID if already set to avoid duplicates
-      if (!simulator.id) {
+      // If simulator has a temp ID, we need to update it with the real ID
+      if (simulator.id.startsWith('temp-')) {
+        // Check if another simulator with this ID already exists (not counting this one)
+        const existingWithSameId = await Simulator.findOne({ 
+          id: simulatorId, 
+          _id: { $ne: simulator._id } 
+        });
+        
+        if (existingWithSameId) {
+          return res.status(409).json({
+            success: false,
+            message: 'Another simulator with this ID already exists'
+          });
+        }
+        
+        // Update the ID with the real one provided by the simulator
         simulator.id = simulatorId;
       }
       
@@ -69,23 +83,23 @@ router.post('/simulators/register', async (req, res) => {
       simulator.lastSeen = Date.now();
       simulator.status = 'online';
       simulator.expectedToken = null;
-      
+
       await simulator.save();
     } else {
       // No simulator with this token, try to find by ID
       simulator = await Simulator.findOne({ id: simulatorId });
-      
+
       if (simulator) {
         // Simulator found by ID
         console.log("Found simulator by ID:", simulator.id);
-        
+
         // Update fields
         simulator.url = url;
         simulator.owner = userId;
         simulator.lastSeen = Date.now();
         simulator.status = 'online';
         simulator.expectedToken = null;
-        
+
         await simulator.save();
       } else {
         // No simulator found at all
