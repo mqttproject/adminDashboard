@@ -185,12 +185,13 @@ npm start
 The system uses a token-based authentication system:
 
 1. **User Authentication**: JWT tokens for dashboard access
-2. **Simulator Registration**: One-time registration tokens
+2. **Simulator Registration**: One-time registration tokens gained when registrating a new simulator, which must then be inputted into the "token" field under [general] of devices.toml
 3. **Device Control**: Implicit permission through simulator ownership
 
 ## Development Notes
 
 - The simulator authenticates only once during registration
+- Token must be added to the token field of "devices.toml" file within the /laite folder
 - Token is required only for the initial connection
 - Communication after registration does not use authentication
 - The server identifies simulators by their UUID, not URL
