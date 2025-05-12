@@ -5,23 +5,26 @@ const morgan = require('morgan');
 const helmet = require('helmet');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
-const mongoose = require('mongoose');
-
 // Import database connection
 const connectDB = require('./config/db');
+const mongoose = require('mongoose')
+const { extractSimulatorUUID } = require('./utils/configHelpers');
 
-// Import routes
+
+// Import routes and services
 const authRoutes = require('./routes/auth_route');
 const apiRoutes = require('./routes/api');
 const dashboardRoutes = require('./routes/dashboard');
 const pollingService = require('./services/polling');
 const simulatorRegistration = require('./routes/discovery');
+const syncService = require('./services/sync-service')
+const connectDB = require('./config/db');
+const simulatorRegistry = require('./services/simulator_registry');
 
-// Connection to database
-require('dotenv').config();
-connectDB();
+const discoveryRoutes = require('./routes/discovery');
+//const simplifiedDiscoveryRoutes = require('./routes/simplified-discovery');
 
-// Initialize app
+//Initialize application
 const app = express();
 
 // Middleware
